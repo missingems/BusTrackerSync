@@ -7,20 +7,20 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		BF0B0A892501E84800D2DD0E /* BusArrival.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0B0A7F2501E84700D2DD0E /* BusArrival.swift */; };
+		BF0B0A8A2501E84800D2DD0E /* BusRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0B0A832501E84700D2DD0E /* BusRoute.swift */; };
+		BF0B0A8B2501E84800D2DD0E /* BusRouteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0B0A882501E84800D2DD0E /* BusRouteService.swift */; };
+		BF0B0A8C2501E84800D2DD0E /* BusStopServiceTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0B0A802501E84700D2DD0E /* BusStopServiceTask.swift */; };
+		BF0B0A8D2501E84800D2DD0E /* Bus.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0B0A7E2501E84700D2DD0E /* Bus.swift */; };
+		BF0B0A8E2501E84800D2DD0E /* BusStopService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0B0A862501E84800D2DD0E /* BusStopService.swift */; };
+		BF0B0A8F2501E84800D2DD0E /* DirectionServiceTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0B0A822501E84700D2DD0E /* DirectionServiceTask.swift */; };
+		BF0B0A902501E84800D2DD0E /* BusStop.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0B0A842501E84700D2DD0E /* BusStop.swift */; };
+		BF0B0A912501E84800D2DD0E /* BusRouteServiceTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0B0A7D2501E84700D2DD0E /* BusRouteServiceTask.swift */; };
+		BF0B0A922501E84800D2DD0E /* BusArrivalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0B0A852501E84700D2DD0E /* BusArrivalService.swift */; };
+		BF0B0A932501E84800D2DD0E /* BusArrivalServiceTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0B0A872501E84800D2DD0E /* BusArrivalServiceTask.swift */; };
+		BF0B0A942501E84800D2DD0E /* Direction.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0B0A812501E84700D2DD0E /* Direction.swift */; };
 		BF8164D224CC340000B94F36 /* TinyNetworking in Frameworks */ = {isa = PBXBuildFile; productRef = BF8164D124CC340000B94F36 /* TinyNetworking */; };
-		BF8164DF24CC345100B94F36 /* Bus.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF8164D424CC345100B94F36 /* Bus.swift */; };
-		BF8164E024CC345100B94F36 /* BusStop.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF8164D524CC345100B94F36 /* BusStop.swift */; };
-		BF8164E124CC345100B94F36 /* BusRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF8164D624CC345100B94F36 /* BusRoute.swift */; };
-		BF8164E224CC345100B94F36 /* BusArrival.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF8164D724CC345100B94F36 /* BusArrival.swift */; };
-		BF8164E324CC345100B94F36 /* BusRouteServiceTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF8164D924CC345100B94F36 /* BusRouteServiceTask.swift */; };
-		BF8164E424CC345100B94F36 /* BusArrivalServiceTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF8164DA24CC345100B94F36 /* BusArrivalServiceTask.swift */; };
-		BF8164E524CC345100B94F36 /* BusRouteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF8164DB24CC345100B94F36 /* BusRouteService.swift */; };
-		BF8164E624CC345100B94F36 /* BusStopServiceTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF8164DC24CC345100B94F36 /* BusStopServiceTask.swift */; };
-		BF8164E724CC345100B94F36 /* BusArrivalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF8164DD24CC345100B94F36 /* BusArrivalService.swift */; };
-		BF8164E824CC345100B94F36 /* BusStopService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF8164DE24CC345100B94F36 /* BusStopService.swift */; };
 		BF8164EB24CC34A000B94F36 /* Polyline in Frameworks */ = {isa = PBXBuildFile; productRef = BF8164EA24CC34A000B94F36 /* Polyline */; };
-		BF8164ED24CC77EB00B94F36 /* DirectionServiceTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF8164EC24CC77EB00B94F36 /* DirectionServiceTask.swift */; };
-		BF8164EF24CC78EA00B94F36 /* Direction.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF8164EE24CC78EA00B94F36 /* Direction.swift */; };
 		BFA4346C24E8FE8C0011E86A /* MapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFA4346B24E8FE8C0011E86A /* MapView.swift */; };
 		BFEC736824CC07C800CB1AD2 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFEC736724CC07C800CB1AD2 /* AppDelegate.swift */; };
 		BFEC736A24CC07C800CB1AD2 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFEC736924CC07C800CB1AD2 /* SceneDelegate.swift */; };
@@ -42,19 +42,19 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		BF0B0A7D2501E84700D2DD0E /* BusRouteServiceTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BusRouteServiceTask.swift; sourceTree = "<group>"; };
+		BF0B0A7E2501E84700D2DD0E /* Bus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bus.swift; sourceTree = "<group>"; };
+		BF0B0A7F2501E84700D2DD0E /* BusArrival.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BusArrival.swift; sourceTree = "<group>"; };
+		BF0B0A802501E84700D2DD0E /* BusStopServiceTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BusStopServiceTask.swift; sourceTree = "<group>"; };
+		BF0B0A812501E84700D2DD0E /* Direction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Direction.swift; sourceTree = "<group>"; };
+		BF0B0A822501E84700D2DD0E /* DirectionServiceTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectionServiceTask.swift; sourceTree = "<group>"; };
+		BF0B0A832501E84700D2DD0E /* BusRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BusRoute.swift; sourceTree = "<group>"; };
+		BF0B0A842501E84700D2DD0E /* BusStop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BusStop.swift; sourceTree = "<group>"; };
+		BF0B0A852501E84700D2DD0E /* BusArrivalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BusArrivalService.swift; sourceTree = "<group>"; };
+		BF0B0A862501E84800D2DD0E /* BusStopService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BusStopService.swift; sourceTree = "<group>"; };
+		BF0B0A872501E84800D2DD0E /* BusArrivalServiceTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BusArrivalServiceTask.swift; sourceTree = "<group>"; };
+		BF0B0A882501E84800D2DD0E /* BusRouteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BusRouteService.swift; sourceTree = "<group>"; };
 		BF79FCA824D3DF3500167A5D /* BusTrackerSync.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BusTrackerSync.entitlements; sourceTree = "<group>"; };
-		BF8164D424CC345100B94F36 /* Bus.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Bus.swift; sourceTree = "<group>"; };
-		BF8164D524CC345100B94F36 /* BusStop.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = BusStop.swift; sourceTree = "<group>"; };
-		BF8164D624CC345100B94F36 /* BusRoute.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = BusRoute.swift; sourceTree = "<group>"; };
-		BF8164D724CC345100B94F36 /* BusArrival.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = BusArrival.swift; sourceTree = "<group>"; };
-		BF8164D924CC345100B94F36 /* BusRouteServiceTask.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = BusRouteServiceTask.swift; sourceTree = "<group>"; };
-		BF8164DA24CC345100B94F36 /* BusArrivalServiceTask.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = BusArrivalServiceTask.swift; sourceTree = "<group>"; };
-		BF8164DB24CC345100B94F36 /* BusRouteService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = BusRouteService.swift; sourceTree = "<group>"; };
-		BF8164DC24CC345100B94F36 /* BusStopServiceTask.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = BusStopServiceTask.swift; sourceTree = "<group>"; };
-		BF8164DD24CC345100B94F36 /* BusArrivalService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = BusArrivalService.swift; sourceTree = "<group>"; };
-		BF8164DE24CC345100B94F36 /* BusStopService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = BusStopService.swift; sourceTree = "<group>"; };
-		BF8164EC24CC77EB00B94F36 /* DirectionServiceTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectionServiceTask.swift; sourceTree = "<group>"; };
-		BF8164EE24CC78EA00B94F36 /* Direction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Direction.swift; sourceTree = "<group>"; };
 		BFA4346B24E8FE8C0011E86A /* MapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapView.swift; sourceTree = "<group>"; };
 		BFEC736424CC07C800CB1AD2 /* BusTrackerSync.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BusTrackerSync.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BFEC736724CC07C800CB1AD2 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -89,34 +89,6 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		BF8164D324CC345100B94F36 /* Model */ = {
-			isa = PBXGroup;
-			children = (
-				BF8164D424CC345100B94F36 /* Bus.swift */,
-				BF8164D524CC345100B94F36 /* BusStop.swift */,
-				BF8164D624CC345100B94F36 /* BusRoute.swift */,
-				BF8164D724CC345100B94F36 /* BusArrival.swift */,
-			);
-			name = Model;
-			path = ../../SGBusSync/DodoBusApi/DodoBusApi/Model;
-			sourceTree = "<group>";
-		};
-		BF8164D824CC345100B94F36 /* Service */ = {
-			isa = PBXGroup;
-			children = (
-				BF8164D924CC345100B94F36 /* BusRouteServiceTask.swift */,
-				BF8164DA24CC345100B94F36 /* BusArrivalServiceTask.swift */,
-				BF8164DB24CC345100B94F36 /* BusRouteService.swift */,
-				BF8164DC24CC345100B94F36 /* BusStopServiceTask.swift */,
-				BF8164DD24CC345100B94F36 /* BusArrivalService.swift */,
-				BF8164DE24CC345100B94F36 /* BusStopService.swift */,
-				BF8164EC24CC77EB00B94F36 /* DirectionServiceTask.swift */,
-				BF8164EE24CC78EA00B94F36 /* Direction.swift */,
-			);
-			name = Service;
-			path = ../../SGBusSync/DodoBusApi/DodoBusApi/Service;
-			sourceTree = "<group>";
-		};
 		BFEC735B24CC07C700CB1AD2 = {
 			isa = PBXGroup;
 			children = (
@@ -138,9 +110,19 @@
 		BFEC736624CC07C800CB1AD2 /* BusTrackerSync */ = {
 			isa = PBXGroup;
 			children = (
+				BF0B0A852501E84700D2DD0E /* BusArrivalService.swift */,
+				BF0B0A872501E84800D2DD0E /* BusArrivalServiceTask.swift */,
+				BF0B0A882501E84800D2DD0E /* BusRouteService.swift */,
+				BF0B0A7D2501E84700D2DD0E /* BusRouteServiceTask.swift */,
+				BF0B0A862501E84800D2DD0E /* BusStopService.swift */,
+				BF0B0A802501E84700D2DD0E /* BusStopServiceTask.swift */,
+				BF0B0A812501E84700D2DD0E /* Direction.swift */,
+				BF0B0A822501E84700D2DD0E /* DirectionServiceTask.swift */,
+				BF0B0A7E2501E84700D2DD0E /* Bus.swift */,
+				BF0B0A7F2501E84700D2DD0E /* BusArrival.swift */,
+				BF0B0A832501E84700D2DD0E /* BusRoute.swift */,
+				BF0B0A842501E84700D2DD0E /* BusStop.swift */,
 				BF79FCA824D3DF3500167A5D /* BusTrackerSync.entitlements */,
-				BF8164D824CC345100B94F36 /* Service */,
-				BF8164D324CC345100B94F36 /* Model */,
 				BFEC736724CC07C800CB1AD2 /* AppDelegate.swift */,
 				BFEC736924CC07C800CB1AD2 /* SceneDelegate.swift */,
 				BFEC736B24CC07C800CB1AD2 /* ContentView.swift */,
@@ -279,22 +261,22 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				BF8164E524CC345100B94F36 /* BusRouteService.swift in Sources */,
+				BF0B0A902501E84800D2DD0E /* BusStop.swift in Sources */,
+				BF0B0A8E2501E84800D2DD0E /* BusStopService.swift in Sources */,
+				BF0B0A8D2501E84800D2DD0E /* Bus.swift in Sources */,
+				BF0B0A8B2501E84800D2DD0E /* BusRouteService.swift in Sources */,
+				BF0B0A912501E84800D2DD0E /* BusRouteServiceTask.swift in Sources */,
+				BF0B0A942501E84800D2DD0E /* Direction.swift in Sources */,
 				BFA4346C24E8FE8C0011E86A /* MapView.swift in Sources */,
-				BF8164E824CC345100B94F36 /* BusStopService.swift in Sources */,
-				BF8164E424CC345100B94F36 /* BusArrivalServiceTask.swift in Sources */,
-				BF8164E124CC345100B94F36 /* BusRoute.swift in Sources */,
-				BF8164E324CC345100B94F36 /* BusRouteServiceTask.swift in Sources */,
-				BF8164E024CC345100B94F36 /* BusStop.swift in Sources */,
-				BF8164E624CC345100B94F36 /* BusStopServiceTask.swift in Sources */,
-				BF8164E724CC345100B94F36 /* BusArrivalService.swift in Sources */,
-				BF8164EF24CC78EA00B94F36 /* Direction.swift in Sources */,
+				BF0B0A932501E84800D2DD0E /* BusArrivalServiceTask.swift in Sources */,
+				BF0B0A8A2501E84800D2DD0E /* BusRoute.swift in Sources */,
+				BF0B0A892501E84800D2DD0E /* BusArrival.swift in Sources */,
 				BFEC736824CC07C800CB1AD2 /* AppDelegate.swift in Sources */,
 				BFEC736A24CC07C800CB1AD2 /* SceneDelegate.swift in Sources */,
-				BF8164DF24CC345100B94F36 /* Bus.swift in Sources */,
 				BFEC736C24CC07C800CB1AD2 /* ContentView.swift in Sources */,
-				BF8164ED24CC77EB00B94F36 /* DirectionServiceTask.swift in Sources */,
-				BF8164E224CC345100B94F36 /* BusArrival.swift in Sources */,
+				BF0B0A8F2501E84800D2DD0E /* DirectionServiceTask.swift in Sources */,
+				BF0B0A922501E84800D2DD0E /* BusArrivalService.swift in Sources */,
+				BF0B0A8C2501E84800D2DD0E /* BusStopServiceTask.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
