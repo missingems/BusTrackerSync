@@ -2,6 +2,7 @@ import Combine
 import TinyNetworking
 import CoreLocation
 import Polyline
+import Firebase
 
 final class BusRouteService {
   private let network = TinyNetworking<BusRouteServiceTask>()
@@ -9,6 +10,7 @@ final class BusRouteService {
   private var busRoutesSubject = PassthroughSubject<[BusRoute], TinyNetworkingError>()
   private var busRoutePolylineSubject = PassthroughSubject<BusRoute, Never>()
   private var disposables: Set<AnyCancellable> = []
+  lazy var ref = Database.database().reference()
   init() {}
   
   func loadBusRoutes(page: Int) -> AnyPublisher<BusRouteStopPayload, TinyNetworkingError> {
@@ -164,6 +166,8 @@ final class BusRouteService {
         }
       }
     }
+    
+    ref.child("busRoutes").setValue(output)
   }
   
   func writeServiceStops(output: [String: Any]) {
@@ -179,5 +183,7 @@ final class BusRouteService {
         }
       }
     }
+    
+    ref.child("serviceStops").setValue(output)
   }
 }
