@@ -23,7 +23,7 @@ extension DirectionServiceTask: Resource {
     case let .bus(service, direction):
       return .requestWithParameters(
         [
-          "token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOjMsInVzZXJfaWQiOjMsImVtYWlsIjoicHVibGljQXBpUm9sZUBzbGEuZ292LnNnIiwiZm9yZXZlciI6ZmFsc2UsImlzcyI6Imh0dHA6XC9cL29tMi5kZmUub25lbWFwLnNnXC9hcGlcL3YyXC91c2VyXC9zZXNzaW9uIiwiaWF0IjoxNjE3MDUyNzM3LCJleHAiOjE2MTc0ODQ3MzcsIm5iZiI6MTYxNzA1MjczNywianRpIjoiNzk2MmUwMzMyMDQ2NDUyYjBkYzYwNzYzNjU5ZjE3Y2QifQ.qj3Y9kyoHnp3gU1S2MLNvLNEXMisuYrw21Sv4ffk1uc",
+          "token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOjMsInVzZXJfaWQiOjMsImVtYWlsIjoicHVibGljQXBpUm9sZUBzbGEuZ292LnNnIiwiZm9yZXZlciI6ZmFsc2UsImlzcyI6Imh0dHA6XC9cL29tMi5kZmUub25lbWFwLnNnXC9hcGlcL3YyXC91c2VyXC9zZXNzaW9uIiwiaWF0IjoxNjM3MTE5MzU3LCJleHAiOjE2Mzc1NTEzNTcsIm5iZiI6MTYzNzExOTM1NywianRpIjoiOGNmNjc4Mjc1ZDQxMTJjZGFmZGFkNDRkNjhmNDYwZDgifQ.llp2JnjqjgXy6QKTDFKtrrSTr0xe7gIX4u62HE8kzxo",
           "busNo": service,
           "direction": direction,
         ],
