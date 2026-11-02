@@ -65,8 +65,8 @@ async function pollRound({ ref, accountKey, apns, fetcher = fetchStop, now = () 
       const service = services.find((candidate) => candidate.ServiceNo === registration.service);
       const result = next(registration, service, at);
       if (result.action === "none") {
-        if (result.tracked && result.tracked !== registration.tracked) {
-          await patch(ref, id, registration.token, { tracked: result.tracked });
+        if (result.tracked && (result.tracked !== registration.tracked || result.arrived !== (registration.arrived ?? 0))) {
+          await patch(ref, id, registration.token, { tracked: result.tracked, arrived: result.arrived });
         }
         return;
       }
@@ -98,7 +98,7 @@ async function pollRound({ ref, accountKey, apns, fetcher = fetchStop, now = () 
         return;
       }
       stats.updates += 1;
-      await patch(ref, id, registration.token, { tracked: result.tracked, last: result.last, lastPushAt: at });
+      await patch(ref, id, registration.token, { tracked: result.tracked, arrived: result.arrived, last: result.last, lastPushAt: at });
     }));
   });
   return { ...stats, registrations: Object.keys(registrations).length };

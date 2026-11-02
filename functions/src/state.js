@@ -7,6 +7,7 @@ const STALE_AFTER = 180_000;
 const MAX_LIFETIME = 2 * 60 * 60_000;
 const REPUSH_EVERY = 120_000;
 const SHIFT_THRESHOLD = 10_000;
+const MAX_BUSES = 3;
 
 function appleDate(ms) {
   return ms == null ? null : ms / 1000 - REFERENCE_EPOCH;
@@ -63,8 +64,10 @@ function next(registration, service, now) {
     if (Math.abs(entry.time - tracked) < Math.abs(list[index].time - tracked)) index = i;
   });
   const chosen = list[index];
+  let arrived = registration.arrived ?? 0;
   if (near && chosen.time - tracked > HANDOVER) {
-    return arrivedEnd(registration, now);
+    if (arrived + 1 >= MAX_BUSES) return arrivedEnd(registration, now);
+    arrived += 1;
   }
 
   const snapshot = {
@@ -90,10 +93,11 @@ function next(registration, service, now) {
   return {
     action: changed || due ? "update" : "none",
     tracked: chosen.time,
+    arrived,
     last: snapshot,
     contentState: contentState({ ...snapshot, since: Math.min(since, chosen.time), hasArrived: false }),
     staleDate: now + STALE_AFTER,
   };
 }
 
-module.exports = { next, contentState, appleDate, REFERENCE_EPOCH };
+module.exports = { next, contentState, appleDate, REFERENCE_EPOCH, MAX_BUSES };

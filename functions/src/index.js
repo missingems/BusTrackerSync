@@ -6,6 +6,7 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret, defineString, defineInt } = require("firebase-functions/params");
 const { APNs, RecordingAPNs } = require("./apns");
 const { pollFor, pollRound } = require("./poller");
+const { hasPro } = require("./entitlement");
 
 initializeApp();
 
@@ -44,10 +45,11 @@ exports.liveActivity = onRequest({ region: REGION, maxInstances: 5 }, async (req
   }
   if (request.method !== "PUT") return response.status(405).end();
 
-  const { id, token, service, stopCode, tracked, since, environment } = request.body ?? {};
+  const { id, token, service, stopCode, tracked, since, environment, transaction } = request.body ?? {};
   const valid = ID.test(id ?? "") && TOKEN.test(token ?? "") && STOP.test(stopCode ?? "") && SERVICE.test(service ?? "")
     && Number.isFinite(tracked) && Number.isFinite(since) && ["sandbox", "production"].includes(environment);
   if (!valid) return response.status(400).send("bad registration");
+  if (!emulated && !(await hasPro(transaction))) return response.status(403).send("not pro");
 
   const ref = activities().child(id);
   const existing = (await ref.get()).val();

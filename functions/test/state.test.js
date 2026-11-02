@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { next, appleDate } = require("../src/state");
+const { next, appleDate, MAX_BUSES } = require("../src/state");
 const crypto = require("node:crypto");
 const { APNs, payloadFor, isGone } = require("../src/apns");
 const { pollRound } = require("../src/poller");
@@ -45,8 +45,19 @@ test("small shifts are not pushed until the re-push interval", () => {
   assert.equal(next(registration({ last, lastPushAt: now - 30_000 }), { NextBus: bus(now + 330_000) }, now).action, "update");
 });
 
-test("ends as arrived when the tracked bus drops off the board", () => {
-  const result = next(registration({ tracked: now + 20_000 }), { NextBus: bus(now + 600_000) }, now);
+test("follows the next bus when the tracked one arrives, up to three buses", () => {
+  const first = next(registration({ tracked: now + 20_000 }), { NextBus: bus(now + 600_000) }, now);
+  assert.equal(first.action, "update");
+  assert.equal(first.tracked, now + 600_000);
+  assert.equal(first.arrived, 1);
+  assert.equal(first.contentState.hasArrived, false);
+  const second = next(registration({ tracked: now + 20_000, arrived: 1 }), { NextBus: bus(now + 600_000) }, now);
+  assert.equal(second.arrived, 2);
+  assert.equal(next(registration({ tracked: now + 20_000, arrived: 2 }), { NextBus: bus(now + 600_000) }, now).action, "end");
+});
+
+test("ends as arrived when the third bus drops off the board", () => {
+  const result = next(registration({ tracked: now + 20_000, arrived: MAX_BUSES - 1 }), { NextBus: bus(now + 600_000) }, now);
   assert.equal(result.action, "end");
   assert.equal(result.contentState.hasArrived, true);
   assert.equal(result.contentState.arrival, appleDate(now + 20_000));
@@ -102,7 +113,7 @@ test("one LTA call per stop, pushes fan out per activity", async () => {
   const ref = memoryRef({
     a: registration(),
     b: registration({ service: "16" }),
-    c: registration({ stopCode: "01012", tracked: now + 10_000 }),
+    c: registration({ stopCode: "01012", tracked: now + 10_000, arrived: MAX_BUSES - 1 }),
   });
   const calls = [];
   const pushes = [];
