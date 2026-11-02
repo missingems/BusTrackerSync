@@ -2,6 +2,9 @@ const { next } = require("./state");
 const { payloadFor, isGone } = require("./apns");
 
 const LTA_URL = "https://datamall2.mytransport.sg/ltaodataservice/v3/BusArrival";
+const LTA_CONCURRENCY = 8;
+const END_ATTEMPTS = 3;
+const REQUIRED = ["token", "service", "stopCode", "environment", "tracked", "since", "createdAt"];
 
 async function fetchStop(stopCode, accountKey) {
   const response = await fetch(`${LTA_URL}?BusStopCode=${stopCode}`, {
@@ -13,16 +16,39 @@ async function fetchStop(stopCode, accountKey) {
   return body.Services ?? [];
 }
 
+async function inPool(items, size, work) {
+  let index = 0;
+  const workers = Array.from({ length: Math.min(size, items.length) }, async () => {
+    while (index < items.length) {
+      await work(items[index++]);
+    }
+  });
+  await Promise.all(workers);
+}
+
+function patch(ref, id, token, values) {
+  return ref.child(id).transaction((current) => {
+    if (current === null) return null;
+    if (current.token !== token) return;
+    return values === null ? null : { ...current, ...values };
+  });
+}
+
 async function pollRound({ ref, accountKey, apns, fetcher = fetchStop, now = () => Date.now(), log = console }) {
   const snapshot = await ref.get();
   const registrations = snapshot.val() ?? {};
+  const stats = { stops: 0, activities: 0, updates: 0, ends: 0, removed: 0, ltaErrors: 0 };
   const byStop = {};
   for (const [id, registration] of Object.entries(registrations)) {
+    if (REQUIRED.some((field) => registration[field] == null)) {
+      stats.removed += 1;
+      await ref.child(id).remove();
+      continue;
+    }
     (byStop[registration.stopCode] ??= []).push([id, registration]);
   }
 
-  const stats = { stops: 0, activities: 0, updates: 0, ends: 0, removed: 0, ltaErrors: 0 };
-  await Promise.all(Object.entries(byStop).map(async ([stopCode, entries]) => {
+  await inPool(Object.entries(byStop), LTA_CONCURRENCY, async ([stopCode, entries]) => {
     let services;
     try {
       services = await fetcher(stopCode, accountKey);
@@ -40,7 +66,7 @@ async function pollRound({ ref, accountKey, apns, fetcher = fetchStop, now = () 
       const result = next(registration, service, at);
       if (result.action === "none") {
         if (result.tracked && result.tracked !== registration.tracked) {
-          await ref.child(id).update({ tracked: result.tracked });
+          await patch(ref, id, registration.token, { tracked: result.tracked });
         }
         return;
       }
@@ -53,19 +79,28 @@ async function pollRound({ ref, accountKey, apns, fetcher = fetchStop, now = () 
         id,
       });
 
-      if (result.action === "end" || isGone(response)) {
-        stats[result.action === "end" ? "ends" : "removed"] += 1;
-        await ref.child(id).remove();
+      if (isGone(response)) {
+        stats.removed += 1;
+        await patch(ref, id, registration.token, null);
         return;
       }
       if (response.status !== 200) {
         log.warn?.(`APNs ${response.status} ${response.reason} for ${id}`);
+        const attempts = (registration.endAttempts ?? 0) + 1;
+        if (result.action === "end") {
+          await patch(ref, id, registration.token, attempts >= END_ATTEMPTS ? null : { endAttempts: attempts });
+        }
+        return;
+      }
+      if (result.action === "end") {
+        stats.ends += 1;
+        await patch(ref, id, registration.token, null);
         return;
       }
       stats.updates += 1;
-      await ref.child(id).update({ tracked: result.tracked, last: result.last, lastPushAt: at });
+      await patch(ref, id, registration.token, { tracked: result.tracked, last: result.last, lastPushAt: at });
     }));
-  }));
+  });
   return { ...stats, registrations: Object.keys(registrations).length };
 }
 

@@ -1,7 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { next, appleDate } = require("../src/state");
-const { payloadFor, isGone } = require("../src/apns");
+const crypto = require("node:crypto");
+const { APNs, payloadFor, isGone } = require("../src/apns");
 const { pollRound } = require("../src/poller");
 
 const now = Date.parse("2026-11-02T08:00:00Z");
@@ -83,8 +84,14 @@ function memoryRef(data) {
     },
     child(id) {
       return {
-        update: async (values) => Object.assign(ref.data[id], values),
         remove: async () => delete ref.data[id],
+        transaction: async (update) => {
+          await ref.beforeWrite?.(id);
+          const result = update(ref.data[id] ? structuredClone(ref.data[id]) : null);
+          if (result === undefined) return;
+          if (result === null) delete ref.data[id];
+          else ref.data[id] = result;
+        },
       };
     },
   };
@@ -124,4 +131,73 @@ test("an LTA failure skips the stop instead of ending its activities", async () 
   const stats = await pollRound({ ref, accountKey: "k", apns: { send: async () => assert.fail() }, fetcher: async () => { throw new Error("down"); }, now: () => now, log: {} });
   assert.equal(stats.ltaErrors, 1);
   assert.ok(ref.data.a);
+});
+
+test("missing optional fields read back from the database don't count as changes", () => {
+  const last = { arrival: now + 300_000 };
+  const result = next(registration({ last, lastPushAt: now - 30_000 }), { NextBus: { EstimatedArrival: iso(now + 302_000) } }, now);
+  assert.equal(result.action, "none");
+});
+
+test("a registration deleted mid-round is not recreated", async () => {
+  const ref = memoryRef({ a: registration() });
+  ref.beforeWrite = async (id) => delete ref.data[id];
+  await pollRound({ ref, accountKey: "k", apns: { send: async () => ({ status: 200 }) }, fetcher: async () => [{ ServiceNo: "15", NextBus: bus(now + 290_000) }], now: () => now });
+  assert.deepEqual(ref.data, {});
+});
+
+test("a re-registration with a new token mid-round is kept", async () => {
+  const ref = memoryRef({ a: registration({ tracked: now + 10_000 }) });
+  ref.beforeWrite = async (id) => { ref.data[id].token = "cd".repeat(32); };
+  await pollRound({ ref, accountKey: "k", apns: { send: async () => ({ status: 200 }) }, fetcher: async () => [], now: () => now });
+  assert.equal(ref.data.a.token, "cd".repeat(32));
+});
+
+test("a failed end push is retried, then given up", async () => {
+  const ref = memoryRef({ a: registration({ tracked: now + 10_000 }) });
+  const options = { ref, accountKey: "k", apns: { send: async () => ({ status: 503, reason: "ServiceUnavailable" }) }, fetcher: async () => [], now: () => now, log: {} };
+  await pollRound(options);
+  assert.equal(ref.data.a.endAttempts, 1);
+  await pollRound(options);
+  await pollRound(options);
+  assert.deepEqual(ref.data, {});
+});
+
+test("malformed registrations are removed without calling LTA", async () => {
+  const ref = memoryRef({ a: { tracked: now } });
+  const stats = await pollRound({ ref, accountKey: "k", apns: {}, fetcher: async () => assert.fail(), now: () => now });
+  assert.equal(stats.removed, 1);
+  assert.deepEqual(ref.data, {});
+});
+
+test("LTA calls are capped in flight", async () => {
+  const data = {};
+  for (let i = 0; i < 30; i++) data[`id-${i}`] = registration({ stopCode: String(10000 + i) });
+  let inFlight = 0;
+  let peak = 0;
+  await pollRound({
+    ref: memoryRef(data),
+    accountKey: "k",
+    apns: { send: async () => ({ status: 200 }) },
+    fetcher: async () => {
+      peak = Math.max(peak, ++inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      inFlight -= 1;
+      return [];
+    },
+    now: () => now,
+  });
+  assert.ok(peak <= 8, `peak ${peak}`);
+});
+
+test("the APNs token is reused across clients within a 30-minute window", () => {
+  const { privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const make = () => new APNs({ key: privateKey, keyId: "KEY", teamId: "TEAM", topic: "t" });
+  const start = Date.parse("2026-11-02T08:00:00Z");
+  const first = make().token(start + 1000);
+  assert.equal(make().token(start + 29 * 60_000), first);
+  const later = make().token(start + 31 * 60_000);
+  assert.notEqual(later, first);
+  const iat = JSON.parse(Buffer.from(later.split(".")[1], "base64url")).iat;
+  assert.equal(iat, (start + 30 * 60_000) / 1000);
 });

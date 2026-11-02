@@ -10,6 +10,9 @@ function base64url(value) {
   return Buffer.from(value).toString("base64url");
 }
 
+const TOKEN_LIFETIME = 30 * 60;
+const signed = {};
+
 class APNs {
   constructor({ key, keyId, teamId, topic }) {
     this.key = key;
@@ -17,22 +20,21 @@ class APNs {
     this.teamId = teamId;
     this.topic = topic;
     this.sessions = {};
-    this.jwt = null;
-    this.jwtAt = 0;
   }
 
-  token() {
-    const now = Math.floor(Date.now() / 1000);
-    if (this.jwt && now - this.jwtAt < 40 * 60) return this.jwt;
+  token(now = Date.now()) {
+    const issued = Math.floor(now / 1000 / TOKEN_LIFETIME) * TOKEN_LIFETIME;
+    const cacheKey = `${this.teamId}.${this.keyId}`;
+    const cached = signed[cacheKey];
+    if (cached && cached.issued === issued) return cached.jwt;
     const header = base64url(JSON.stringify({ alg: "ES256", kid: this.keyId }));
-    const claims = base64url(JSON.stringify({ iss: this.teamId, iat: now }));
+    const claims = base64url(JSON.stringify({ iss: this.teamId, iat: issued }));
     const signature = crypto.sign("sha256", Buffer.from(`${header}.${claims}`), {
       key: this.key,
       dsaEncoding: "ieee-p1363",
     });
-    this.jwt = `${header}.${claims}.${base64url(signature)}`;
-    this.jwtAt = now;
-    return this.jwt;
+    signed[cacheKey] = { issued, jwt: `${header}.${claims}.${base64url(signature)}` };
+    return signed[cacheKey].jwt;
   }
 
   session(environment) {

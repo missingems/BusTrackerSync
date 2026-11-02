@@ -61,7 +61,7 @@ exports.liveActivity = onRequest({ region: REGION, maxInstances: 5 }, async (req
     service,
     stopCode,
     environment,
-    tracked: Math.round(tracked * 1000),
+    tracked: existing?.last && existing.token === token ? existing.tracked : Math.round(tracked * 1000),
     since: Math.round(since * 1000),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,

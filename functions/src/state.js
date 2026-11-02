@@ -73,11 +73,16 @@ function next(registration, service, now) {
     load: chosen.bus.Load || null,
     vehicle: chosen.bus.Type || null,
   };
-  const last = registration.last;
+  const last = registration.last && {
+    arrival: registration.last.arrival,
+    following: registration.last.following ?? null,
+    load: registration.last.load ?? null,
+    vehicle: registration.last.vehicle ?? null,
+  };
   const changed = !last
     || Math.abs(last.arrival - snapshot.arrival) >= SHIFT_THRESHOLD
-    || (last.following == null) !== (snapshot.following == null)
-    || (snapshot.following != null && Math.abs(last.following - snapshot.following) >= 30_000)
+    || (last.following === null) !== (snapshot.following === null)
+    || (snapshot.following !== null && Math.abs(last.following - snapshot.following) >= 30_000)
     || last.load !== snapshot.load
     || last.vehicle !== snapshot.vehicle;
   const due = now - (registration.lastPushAt ?? 0) >= REPUSH_EVERY;

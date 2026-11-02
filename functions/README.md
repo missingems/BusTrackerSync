@@ -20,10 +20,17 @@ The logic in `src/state.js` mirrors `BusActivityController.state(for:)`.
 - **Which bus.** It follows the bus whose arrival is closest to the one it is tracking. When the tracked bus drops off the board within a minute of arriving, it sends `event: end` with `hasArrived: true` and dismisses after 2 min.
 - **When to push.** It pushes only when something visible changes: the ETA moves by 10 s or more, or the following bus, load or vehicle changes. Otherwise it pushes every 2 min, to move `stale-date` (3 min) forward.
 - **Priority.** Updates go out at priority 5 and the end push at priority 10.
+- **Who updates the activity.** Once the server has accepted a registration, the app stops updating the activity itself and the server is the only one sending updates. If the activity's `stale-date` gets within a minute (the server pushes at least every 2 min, so normally it doesn't), the app goes back to updating it while it's open. After the server's first push, a re-registration from the app doesn't overwrite the server's tracked arrival time.
+- **APNs token.** The token's issue time is rounded down to the last 30-minute mark, and the token is kept for the lifetime of the server instance. Apple rejects tokens that are refreshed more than once every 20 minutes.
+- **LTA calls.** At most 8 LTA requests are in flight at a time.
 - **Cleanup.**
   - It ends activities older than 2 h, or ones whose tracked time is more than 10 min in the past.
   - It deletes the registration on APNs `410`, `BadDeviceToken`, `DeviceTokenNotForTopic` and `Unregistered`.
+  - If the end push fails, it retries it the next round, and gives up after 3 tries.
+  - It removes registrations that are missing a required field.
+  - Writes use transactions on the registration's push token. A registration deleted during a round isn't recreated, and one re-registered with a new token isn't overwritten.
   - If an LTA call fails, it skips that stop for the round and doesn't end its activities.
+- **Push-token changes.** iOS can give the activity a new push token while the app is suspended, and the app can't send it to the server until it runs again. APNs then rejects the old token and the registration is deleted. When the app becomes active again, it re-registers.
 - **Payload format.** Dates in `content-state` are seconds since 2001-01-01, which is what ActivityKit's default `JSONDecoder` expects. The APNs `timestamp`, `stale-date` and `dismissal-date` fields are Unix seconds. `since` and `hasArrived` are always sent, because `ContentState`'s synthesized decoder requires them.
 
 ## Run locally (emulator, no production access)
