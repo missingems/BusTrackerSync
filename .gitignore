@@ -1,0 +1,8 @@
+.env
+node_modules/
+*.p8
+.secret.local
+.env.local
+firebase-debug.log
+database-debug.log
+ui-debug.log
