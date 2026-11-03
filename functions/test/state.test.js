@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { next, appleDate, MAX_BUSES } = require("../src/state");
+const { next, appleDate, staleDate, MAX_BUSES } = require("../src/state");
 const crypto = require("node:crypto");
 const { APNs, payloadFor, isGone } = require("../src/apns");
 const { pollRound } = require("../src/poller");
@@ -211,4 +211,11 @@ test("the APNs token is reused across clients within a 30-minute window", () => 
   assert.notEqual(later, first);
   const iat = JSON.parse(Buffer.from(later.split(".")[1], "base64url")).iat;
   assert.equal(iat, (start + 30 * 60_000) / 1000);
+});
+
+test("the stale date lands a minute before arrival so the Live Activity counts down on its own", () => {
+  const now = Date.parse("2026-11-03T12:00:00Z");
+  assert.equal(staleDate(now + 10 * 60_000, now), now + 180_000);
+  assert.equal(staleDate(now + 3 * 60_000, now), now + 2 * 60_000);
+  assert.equal(staleDate(now + 30_000, now), now + 15_000);
 });

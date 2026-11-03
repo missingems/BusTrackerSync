@@ -7,7 +7,13 @@ const STALE_AFTER = 180_000;
 const MAX_LIFETIME = 2 * 60 * 60_000;
 const REPUSH_EVERY = 120_000;
 const SHIFT_THRESHOLD = 10_000;
+const COUNTDOWN_LEAD = 60_000;
+const MIN_FRESH = 15_000;
 const MAX_BUSES = 3;
+
+function staleDate(arrival, now) {
+  return Math.min(now + STALE_AFTER, Math.max(arrival - COUNTDOWN_LEAD, now + MIN_FRESH));
+}
 
 function appleDate(ms) {
   return ms == null ? null : ms / 1000 - REFERENCE_EPOCH;
@@ -96,8 +102,8 @@ function next(registration, service, now) {
     arrived,
     last: snapshot,
     contentState: contentState({ ...snapshot, since: Math.min(since, chosen.time), hasArrived: false }),
-    staleDate: now + STALE_AFTER,
+    staleDate: staleDate(chosen.time, now),
   };
 }
 
-module.exports = { next, contentState, appleDate, REFERENCE_EPOCH, MAX_BUSES };
+module.exports = { next, contentState, appleDate, staleDate, REFERENCE_EPOCH, MAX_BUSES };
