@@ -1,17 +1,19 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { entitled, hasPro, PRO_PRODUCT_ID } = require("../src/entitlement");
+const { entitled, hasPro, PRO_PRODUCT_IDS } = require("../src/entitlement");
 
 const now = Date.parse("2026-11-02T08:00:00Z");
 const transaction = (extra = {}) => ({
   bundleId: "sg.com.missingems.SGBusTime",
-  productId: PRO_PRODUCT_ID,
+  productId: "sg.com.missingems.SGBusTime.pro.monthly",
   expiresDate: now + 86_400_000,
   ...extra,
 });
 
 test("an active Pro subscription is entitled", () => {
   assert.equal(entitled(transaction(), now), true);
+  assert.equal(entitled(transaction({ productId: "sg.com.missingems.SGBusTime.pro.yearly" }), now), true);
+  assert.equal(PRO_PRODUCT_IDS.size, 2);
 });
 
 test("expired, revoked, other products and other apps are not entitled", () => {

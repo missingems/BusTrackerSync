@@ -4,7 +4,10 @@ const { SignedDataVerifier, Environment } = require("@apple/app-store-server-lib
 
 const BUNDLE_ID = "sg.com.missingems.SGBusTime";
 const APP_APPLE_ID = 1487419506;
-const PRO_PRODUCT_ID = "sg.com.missingems.SGBusTime.pro.monthly";
+const PRO_PRODUCT_IDS = new Set([
+  "sg.com.missingems.SGBusTime.pro.monthly",
+  "sg.com.missingems.SGBusTime.pro.yearly",
+]);
 const MAX_LENGTH = 16_384;
 
 let verifiers;
@@ -19,7 +22,7 @@ function makeVerifiers() {
 
 function entitled(transaction, now = Date.now()) {
   return transaction?.bundleId === BUNDLE_ID
-    && transaction.productId === PRO_PRODUCT_ID
+    && PRO_PRODUCT_IDS.has(transaction.productId)
     && transaction.revocationDate == null
     && (transaction.expiresDate == null || transaction.expiresDate > now);
 }
@@ -37,4 +40,4 @@ async function hasPro(signedTransaction, now = Date.now()) {
   return false;
 }
 
-module.exports = { hasPro, entitled, PRO_PRODUCT_ID };
+module.exports = { hasPro, entitled, PRO_PRODUCT_IDS };
