@@ -18,7 +18,7 @@ These Cloud Functions keep SGBusTime's bus Live Activity up to date after the ap
 The logic in `src/state.js` mirrors `BusActivityController.state(for:)`.
 
 - **Which bus.** It follows the bus whose arrival is closest to the one it is tracking. When the tracked bus drops off the board within a minute of arriving, it sends `event: end` with `hasArrived: true` and dismisses after 2 min.
-- **When to push.** It pushes only when something visible changes: the ETA moves by 10 s or more, or the following bus, load or vehicle changes. Otherwise it pushes every 2 min, to move `stale-date` (3 min) forward.
+- **When to push.** It pushes only when something visible changes: the ETA moves by 10 s or more, the following bus, load or vehicle changes, or the whole minutes left drop by one. The Live Activity can't count minutes down by itself, so the minute push keeps it showing the same minutes as the app. Otherwise it pushes every 2 min, to move `stale-date` (3 min) forward.
 - **Priority.** Updates go out at priority 5 and the end push at priority 10.
 - **Who updates the activity.** Once the server has accepted a registration, the app stops updating the activity itself and the server is the only one sending updates. If the activity's `stale-date` gets within a minute (the server pushes at least every 2 min, so normally it doesn't), the app goes back to updating it while it's open. After the server's first push, a re-registration from the app doesn't overwrite the server's tracked arrival time.
 - **APNs token.** The token's issue time is rounded down to the last 30-minute mark, and the token is kept for the lifetime of the server instance. Apple rejects tokens that are refreshed more than once every 20 minutes.
@@ -92,7 +92,7 @@ These figures use list prices at the time of writing (CPU $0.000024/vCPU-s, memo
 
 **APNs** is free. Apple caps how often a Live Activity can be updated.
 - The app sets `NSSupportsLiveActivitiesFrequentUpdates` for a larger budget. Users can still turn this off in Settings.
-- Because the server only pushes on visible changes, a typical activity gets one push every 20–60 s.
+- Because the server only pushes on visible changes, a typical activity gets one push every 20–60 s, and at least one a minute until its last minute.
 
 **Abuse**
 - The register endpoint is unauthenticated. Abuse is capped by input validation, `MAX_ACTIVITIES` (default 500) and the 2 h lifetime.

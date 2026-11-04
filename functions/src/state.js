@@ -15,6 +15,10 @@ function staleDate(arrival, now) {
   return Math.min(now + STALE_AFTER, Math.max(arrival - COUNTDOWN_LEAD, now + MIN_FRESH));
 }
 
+function minutesAway(arrival, at) {
+  return Math.floor((arrival - at) / 60_000);
+}
+
 function appleDate(ms) {
   return ms == null ? null : ms / 1000 - REFERENCE_EPOCH;
 }
@@ -95,9 +99,12 @@ function next(registration, service, now) {
     || last.load !== snapshot.load
     || last.vehicle !== snapshot.vehicle;
   const due = now - (registration.lastPushAt ?? 0) >= REPUSH_EVERY;
+  const ticked = last != null && registration.lastPushAt != null
+    && minutesAway(snapshot.arrival, now) >= 1
+    && minutesAway(snapshot.arrival, now) !== minutesAway(last.arrival, registration.lastPushAt);
 
   return {
-    action: changed || due ? "update" : "none",
+    action: changed || due || ticked ? "update" : "none",
     tracked: chosen.time,
     arrived,
     last: snapshot,

@@ -45,6 +45,15 @@ test("small shifts are not pushed until the re-push interval", () => {
   assert.equal(next(registration({ last, lastPushAt: now - 30_000 }), { NextBus: bus(now + 330_000) }, now).action, "update");
 });
 
+test("pushes when the minutes shown would change, so the Live Activity matches the app", () => {
+  const last = { arrival: now + 300_000, following: null, load: "SEA", vehicle: "SD" };
+  const service = { NextBus: bus(now + 300_000) };
+  assert.equal(next(registration({ last, lastPushAt: now - 50_000 }), service, now).action, "none");
+  assert.equal(next(registration({ last, lastPushAt: now - 70_000 }), service, now).action, "update");
+  const final = { ...last, arrival: now + 50_000 };
+  assert.equal(next(registration({ last: final, lastPushAt: now - 20_000, tracked: now + 50_000 }), { NextBus: bus(now + 50_000) }, now).action, "none");
+});
+
 test("follows the next bus when the tracked one arrives, up to five buses", () => {
   const first = next(registration({ tracked: now + 20_000 }), { NextBus: bus(now + 600_000) }, now);
   assert.equal(first.action, "update");
