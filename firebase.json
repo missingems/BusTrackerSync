@@ -1,0 +1,15 @@
+{
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "live-activity",
+      "ignore": ["node_modules", "test", ".secret.local", ".env.local", "*.p8"]
+    }
+  ],
+  "emulators": {
+    "functions": { "port": 5001 },
+    "database": { "port": 9000 },
+    "ui": { "enabled": false },
+    "singleProjectMode": true
+  }
+}
