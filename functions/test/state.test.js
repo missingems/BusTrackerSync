@@ -62,7 +62,7 @@ test("updates that change the minutes shown go out urgently, others don't", () =
   assert.equal(next(registration({ last, lastPushAt: now - 30_000 }), { NextBus: bus(now + 303_000, { Load: "SDA" }) }, now).urgent, false);
 });
 
-test("follows the next bus when the tracked one arrives, up to five buses", () => {
+test("follows the next bus when the tracked one arrives, up to three buses", () => {
   const first = next(registration({ tracked: now + 20_000 }), { NextBus: bus(now + 600_000) }, now);
   assert.equal(first.action, "update");
   assert.equal(first.tracked, now + 600_000);
@@ -76,12 +76,25 @@ test("follows the next bus when the tracked one arrives, up to five buses", () =
   assert.equal(next(registration({ tracked: now + 20_000, arrived: MAX_BUSES - 1 }), { NextBus: bus(now + 600_000) }, now).action, "end");
 });
 
-test("ends as arrived when the fifth bus drops off the board", () => {
+test("ends as arrived when the third bus drops off the board", () => {
   const result = next(registration({ tracked: now + 20_000, arrived: MAX_BUSES - 1 }), { NextBus: bus(now + 600_000) }, now);
   assert.equal(result.action, "end");
   assert.equal(result.contentState.hasArrived, true);
   assert.equal(result.contentState.arrival, appleDate(now + 20_000));
   assert.equal(result.dismissalDate, now + 120_000);
+});
+
+test("a bunched bus two minutes behind counts as the next bus", () => {
+  const result = next(registration({ tracked: now + 10_000 }), { NextBus: bus(now + 130_000) }, now);
+  assert.equal(result.arrived, 1);
+  assert.equal(result.tracked, now + 130_000);
+  assert.equal(next(registration({ tracked: now + 10_000, arrived: MAX_BUSES - 1 }), { NextBus: bus(now + 130_000) }, now).action, "end");
+});
+
+test("a due bus whose estimate slips by a minute is still the same bus", () => {
+  const result = next(registration({ tracked: now + 10_000 }), { NextBus: bus(now + 70_000) }, now);
+  assert.equal(result.arrived, 0);
+  assert.equal(result.tracked, now + 70_000);
 });
 
 test("ends as arrived when the service disappears near arrival, waits otherwise", () => {
