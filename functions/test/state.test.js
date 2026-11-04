@@ -54,6 +54,14 @@ test("pushes when the minutes shown would change, so the Live Activity matches t
   assert.equal(next(registration({ last: final, lastPushAt: now - 20_000, tracked: now + 50_000 }), { NextBus: bus(now + 50_000) }, now).action, "none");
 });
 
+test("updates that change the minutes shown go out urgently, others don't", () => {
+  const last = { arrival: now + 300_000, following: null, load: "SEA", vehicle: "SD" };
+  assert.equal(next(registration({ last, lastPushAt: now - 70_000 }), { NextBus: bus(now + 300_000) }, now).urgent, true);
+  assert.equal(next(registration({ last, lastPushAt: now - 30_000 }), { NextBus: bus(now + 245_000) }, now).urgent, true);
+  assert.equal(next(registration({ last, lastPushAt: now - 30_000 }), { NextBus: bus(now + 303_000) }, now).urgent, false);
+  assert.equal(next(registration({ last, lastPushAt: now - 30_000 }), { NextBus: bus(now + 303_000, { Load: "SDA" }) }, now).urgent, false);
+});
+
 test("follows the next bus when the tracked one arrives, up to five buses", () => {
   const first = next(registration({ tracked: now + 20_000 }), { NextBus: bus(now + 600_000) }, now);
   assert.equal(first.action, "update");

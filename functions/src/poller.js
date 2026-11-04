@@ -76,7 +76,7 @@ async function pollRound({ ref, accountKey, apns, fetcher = fetchStop, now = () 
         token: registration.token,
         environment: registration.environment,
         payload: payloadFor(result, at),
-        priority: result.action === "end" ? 10 : 5,
+        priority: result.action === "end" || result.urgent ? 10 : 5,
         id,
       });
 

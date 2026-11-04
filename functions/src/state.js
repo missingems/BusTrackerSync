@@ -99,12 +99,16 @@ function next(registration, service, now) {
     || last.load !== snapshot.load
     || last.vehicle !== snapshot.vehicle;
   const due = now - (registration.lastPushAt ?? 0) >= REPUSH_EVERY;
+  const shown = minutesAway(snapshot.arrival, now);
   const ticked = last != null && registration.lastPushAt != null
-    && minutesAway(snapshot.arrival, now) >= 1
-    && minutesAway(snapshot.arrival, now) !== minutesAway(last.arrival, registration.lastPushAt);
+    && shown >= 1
+    && shown !== minutesAway(last.arrival, registration.lastPushAt);
+  const urgent = !last || registration.lastPushAt == null || ticked
+    || (shown >= 1 && shown !== minutesAway(last.arrival, now));
 
   return {
     action: changed || due || ticked ? "update" : "none",
+    urgent,
     tracked: chosen.time,
     arrived,
     last: snapshot,
