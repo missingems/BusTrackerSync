@@ -1,9 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { next, appleDate, staleDate, MAX_BUSES } = require("../src/state");
+const { next, appleDate, staleDate, MAX_BUSES, FAR_POLL } = require("../src/state");
 const crypto = require("node:crypto");
 const { APNs, payloadFor, isGone } = require("../src/apns");
-const { pollRound } = require("../src/poller");
+const { pollRound, pollFor } = require("../src/poller");
 
 const now = Date.parse("2026-11-02T08:00:00Z");
 const iso = (ms) => new Date(ms).toISOString().replace("Z", "+00:00");
@@ -251,4 +251,35 @@ test("the stale date lands a minute before arrival so the Live Activity counts d
   assert.equal(staleDate(now + 10 * 60_000, now), now + 180_000);
   assert.equal(staleDate(now + 3 * 60_000, now), now + 2 * 60_000);
   assert.equal(staleDate(now + 30_000, now), now + 15_000);
+});
+
+test("a bus more than ten minutes away is polled less often", () => {
+  const far = next(registration({ tracked: now + 900_000 }), { NextBus: bus(now + 900_000) }, now);
+  assert.equal(far.nextPollAt, now + FAR_POLL);
+  const close = next(registration(), { NextBus: bus(now + 300_000) }, now);
+  assert.equal(close.nextPollAt, now);
+});
+
+test("a far registration waits for its next poll without calling LTA", async () => {
+  const ref = memoryRef({ a: registration({ nextPollAt: now + 30_000 }) });
+  const stats = await pollRound({ ref, accountKey: "k", apns: { send: async () => assert.fail() }, fetcher: async () => assert.fail(), now: () => now });
+  assert.equal(stats.waiting, 1);
+  assert.equal(stats.soonest, now + 30_000);
+});
+
+test("polling a far bus schedules its next poll, and a close bus clears it", async () => {
+  const ref = memoryRef({ a: registration({ tracked: now + 900_000 }) });
+  const options = { ref, accountKey: "k", apns: { send: async () => ({ status: 200 }) }, now: () => now };
+  const stats = await pollRound({ ...options, fetcher: async () => [{ ServiceNo: "15", NextBus: bus(now + 900_000) }] });
+  assert.equal(ref.data.a.nextPollAt, now + FAR_POLL);
+  assert.equal(stats.soonest, now + FAR_POLL);
+  ref.data.a.nextPollAt = now;
+  await pollRound({ ...options, fetcher: async () => [{ ServiceNo: "15", NextBus: bus(now + 300_000) }] });
+  assert.equal(ref.data.a.nextPollAt, null);
+});
+
+test("the poller stops early when every bus is far away", async () => {
+  const ref = memoryRef({ a: registration({ nextPollAt: Date.now() + 600_000 }) });
+  const rounds = await pollFor(58_000, 20, { ref, accountKey: "k", apns: {}, fetcher: async () => assert.fail() });
+  assert.equal(rounds.length, 1);
 });

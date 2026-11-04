@@ -10,9 +10,15 @@ const SHIFT_THRESHOLD = 10_000;
 const COUNTDOWN_LEAD = 60_000;
 const MIN_FRESH = 15_000;
 const MAX_BUSES = 3;
+const FAR = 10 * 60_000;
+const FAR_POLL = 50_000;
 
 function staleDate(arrival, now) {
   return Math.min(now + STALE_AFTER, Math.max(arrival - COUNTDOWN_LEAD, now + MIN_FRESH));
+}
+
+function nextPollAt(arrival, now) {
+  return arrival - now > FAR ? now + FAR_POLL : now;
 }
 
 function minutesAway(arrival, at) {
@@ -109,6 +115,7 @@ function next(registration, service, now) {
   return {
     action: changed || due || ticked ? "update" : "none",
     urgent,
+    nextPollAt: nextPollAt(chosen.time, now),
     tracked: chosen.time,
     arrived,
     last: snapshot,
@@ -117,4 +124,4 @@ function next(registration, service, now) {
   };
 }
 
-module.exports = { next, contentState, appleDate, staleDate, REFERENCE_EPOCH, MAX_BUSES };
+module.exports = { next, contentState, appleDate, staleDate, REFERENCE_EPOCH, MAX_BUSES, FAR_POLL };
