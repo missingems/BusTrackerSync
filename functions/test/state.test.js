@@ -102,6 +102,12 @@ test("ends as arrived when the service disappears near arrival, waits otherwise"
   assert.equal(next(registration(), undefined, now).action, "none");
 });
 
+test("a Live Activity ends after 30 minutes", () => {
+  const service = { NextBus: bus(now + 300_000) };
+  assert.equal(next(registration({ createdAt: now - 29 * 60_000 }), service, now).action, "update");
+  assert.equal(next(registration({ createdAt: now - 31 * 60_000 }), service, now).action, "end");
+});
+
 test("ends stale registrations", () => {
   const result = next(registration({ createdAt: now - 3 * 3600_000 }), { NextBus: bus(now + 300_000) }, now);
   assert.equal(result.action, "end");
