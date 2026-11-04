@@ -47,9 +47,10 @@ exports.liveActivity = onRequest({ region: REGION, maxInstances: 5 }, async (req
   }
   if (request.method !== "PUT") return response.status(405).end();
 
-  const { id, token, service, stopCode, tracked, since, environment, transaction } = request.body ?? {};
-  const valid = ID.test(id ?? "") && TOKEN.test(token ?? "") && STOP.test(stopCode ?? "") && SERVICE.test(service ?? "")
-    && Number.isFinite(tracked) && Number.isFinite(since) && ["sandbox", "production"].includes(environment);
+  const { id, token, service, stopCode, tracked, since, expires, environment, transaction } = request.body ?? {};
+  const stop = request.body?.kind === "stop";
+  const valid = ID.test(id ?? "") && TOKEN.test(token ?? "") && STOP.test(stopCode ?? "") && ["sandbox", "production"].includes(environment)
+    && (stop ? Number.isFinite(expires) : SERVICE.test(service ?? "") && Number.isFinite(tracked) && Number.isFinite(since));
   if (!valid) return response.status(400).send("bad registration");
   const owner = emulated ? null : await proOwner(transaction);
   if (!emulated && !owner) return response.status(403).send("not pro");
@@ -62,14 +63,23 @@ exports.liveActivity = onRequest({ region: REGION, maxInstances: 5 }, async (req
     if (count >= MAX_ACTIVITIES.value()) return response.status(503).send("full");
   }
   const now = Date.now();
-  await ref.update({
+  const createdAt = existing?.createdAt ?? now;
+  await ref.update(stop ? {
+    kind: "stop",
+    token,
+    stopCode,
+    environment,
+    expires: Math.round(expires * 1000),
+    createdAt,
+    updatedAt: now,
+  } : {
     token,
     service,
     stopCode,
     environment,
     tracked: existing?.last && existing.token === token ? existing.tracked : Math.round(tracked * 1000),
     since: Math.round(since * 1000),
-    createdAt: existing?.createdAt ?? now,
+    createdAt,
     updatedAt: now,
   });
   return response.status(204).end();

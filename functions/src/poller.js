@@ -1,10 +1,13 @@
-const { next } = require("./state");
+const { next, nextStop } = require("./state");
 const { payloadFor, isGone } = require("./apns");
 
 const LTA_URL = "https://datamall2.mytransport.sg/ltaodataservice/v3/BusArrival";
 const LTA_CONCURRENCY = 8;
 const END_ATTEMPTS = 3;
-const REQUIRED = ["token", "service", "stopCode", "environment", "tracked", "since", "createdAt"];
+const REQUIRED = {
+  bus: ["token", "service", "stopCode", "environment", "tracked", "since", "createdAt"],
+  stop: ["token", "stopCode", "environment", "expires", "createdAt"],
+};
 
 async function fetchStop(stopCode, accountKey) {
   const response = await fetch(`${LTA_URL}?BusStopCode=${stopCode}`, {
@@ -43,8 +46,9 @@ async function pollRound({ ref, accountKey, apns, fetcher = fetchStop, now = () 
   let soonest = Infinity;
   const due = (at) => { soonest = Math.min(soonest, at); };
   for (const [id, registration] of Object.entries(registrations)) {
-    if (REQUIRED.some((field) => registration[field] == null)) {
-      log.warn?.(`Removing ${id}: missing ${REQUIRED.filter((field) => registration[field] == null).join(", ")}`);
+    const required = REQUIRED[registration.kind ?? "bus"] ?? REQUIRED.bus;
+    if (required.some((field) => registration[field] == null)) {
+      log.warn?.(`Removing ${id}: missing ${required.filter((field) => registration[field] == null).join(", ")}`);
       stats.removed += 1;
       await ref.child(id).remove();
       continue;
@@ -72,12 +76,16 @@ async function pollRound({ ref, accountKey, apns, fetcher = fetchStop, now = () 
     await Promise.all(entries.map(async ([id, registration]) => {
       stats.activities += 1;
       const at = now();
-      const service = services.find((candidate) => candidate.ServiceNo === registration.service);
-      const result = next(registration, service, at);
+      const stop = registration.kind === "stop";
+      const result = stop
+        ? nextStop(registration, services, at)
+        : next(registration, services.find((candidate) => candidate.ServiceNo === registration.service), at);
       const nextPollAt = result.nextPollAt > at ? result.nextPollAt : null;
       if (result.action === "none") {
         due(nextPollAt ?? at);
-        if (result.tracked && (nextPollAt || registration.nextPollAt || result.tracked !== registration.tracked || result.arrived !== (registration.arrived ?? 0))) {
+        if (stop) {
+          if (nextPollAt !== (registration.nextPollAt ?? null)) await patch(ref, id, registration.token, { nextPollAt });
+        } else if (result.tracked && (nextPollAt || registration.nextPollAt || result.tracked !== registration.tracked || result.arrived !== (registration.arrived ?? 0))) {
           await patch(ref, id, registration.token, { tracked: result.tracked, arrived: result.arrived, nextPollAt });
         }
         return;
@@ -91,7 +99,7 @@ async function pollRound({ ref, accountKey, apns, fetcher = fetchStop, now = () 
         id,
       });
 
-      log.info?.(`APNs ${response.status} ${response.reason ?? ""} ${result.action} ${id} ${registration.service}@${registration.stopCode} ${registration.environment}`);
+      log.info?.(`APNs ${response.status} ${response.reason ?? ""} ${result.action} ${id} ${registration.service ?? "stop"}@${registration.stopCode} ${registration.environment}`);
       if (isGone(response)) {
         stats.removed += 1;
         await patch(ref, id, registration.token, null);
@@ -113,7 +121,8 @@ async function pollRound({ ref, accountKey, apns, fetcher = fetchStop, now = () 
       }
       stats.updates += 1;
       due(nextPollAt ?? at);
-      await patch(ref, id, registration.token, { tracked: result.tracked, arrived: result.arrived, last: result.last, lastPushAt: at, nextPollAt });
+      const saved = stop ? { last: result.last } : { tracked: result.tracked, arrived: result.arrived, last: result.last };
+      await patch(ref, id, registration.token, { ...saved, lastPushAt: at, nextPollAt });
     }));
   });
   return { ...stats, registrations: Object.keys(registrations).length, soonest: Number.isFinite(soonest) ? soonest : null };
