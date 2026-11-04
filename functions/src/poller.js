@@ -41,6 +41,7 @@ async function pollRound({ ref, accountKey, apns, fetcher = fetchStop, now = () 
   const byStop = {};
   for (const [id, registration] of Object.entries(registrations)) {
     if (REQUIRED.some((field) => registration[field] == null)) {
+      log.warn?.(`Removing ${id}: missing ${REQUIRED.filter((field) => registration[field] == null).join(", ")}`);
       stats.removed += 1;
       await ref.child(id).remove();
       continue;
@@ -79,6 +80,7 @@ async function pollRound({ ref, accountKey, apns, fetcher = fetchStop, now = () 
         id,
       });
 
+      log.info?.(`APNs ${response.status} ${response.reason ?? ""} ${result.action} ${id} ${registration.service}@${registration.stopCode} ${registration.environment}`);
       if (isGone(response)) {
         stats.removed += 1;
         await patch(ref, id, registration.token, null);
