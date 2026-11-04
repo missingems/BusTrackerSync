@@ -109,11 +109,14 @@ function next(registration, service, now) {
   const ticked = last != null && registration.lastPushAt != null
     && shown >= 1
     && shown !== minutesAway(last.arrival, registration.lastPushAt);
-  const urgent = !last || registration.lastPushAt == null || ticked
+  const reached = registration.lastPushAt != null
+    && registration.lastPushAt < snapshot.arrival
+    && now >= snapshot.arrival;
+  const urgent = !last || registration.lastPushAt == null || ticked || reached
     || (shown >= 1 && shown !== minutesAway(last.arrival, now));
 
   return {
-    action: changed || due || ticked ? "update" : "none",
+    action: changed || due || ticked || reached ? "update" : "none",
     urgent,
     nextPollAt: nextPollAt(chosen.time, now),
     tracked: chosen.time,
