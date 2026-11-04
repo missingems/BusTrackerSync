@@ -62,7 +62,7 @@ function scenarios(byStop) {
 function run(scenario, strategy) {
   const { rows, service, start, end } = scenario;
   const registration = { service, stopCode: scenario.stop, tracked: scenario.tracked, since: start, createdAt: start };
-  const tally = { polls: 0, pushes: 0, urgent: 0, samples: 0, off: 0, offTwo: 0, error: 0, duration: 0, near: 0 };
+  const tally = { polls: 0, pushes: 0, urgent: 0, samples: 0, off: 0, offTwo: 0, error: 0, duration: 0, near: 0, buses: [] };
   let shown = null;
   let nextPoll = start;
   let t = start;
@@ -74,11 +74,13 @@ function run(scenario, strategy) {
     const snapshot = snapshotAt(rows, t);
     const result = next(registration, snapshot?.services.find((candidate) => candidate.ServiceNo === service), t);
     if (result.action === "end") {
+      if (result.contentState.hasArrived) tally.buses.push(t - start);
       pushes.push({ at: t, arrival: null });
       tally.pushes += 1;
       break;
     }
     if (result.tracked) {
+      if ((result.arrived ?? 0) > (registration.arrived ?? 0)) tally.buses.push(t - start);
       registration.tracked = result.tracked;
       registration.arrived = result.arrived;
     }
@@ -124,11 +126,13 @@ const byStop = load(files);
 const list = scenarios(byStop);
 console.log(`${list.length} simulated Live Activities across ${Object.keys(byStop).length} stops`);
 
+const buses = [];
 const results = STRATEGIES.map((strategy) => {
   const total = { polls: 0, pushes: 0, urgent: 0, samples: 0, off: 0, offTwo: 0, error: 0, duration: 0, near: 0 };
   for (const scenario of list) {
     const tally = run(scenario, strategy);
     for (const key of Object.keys(total)) total[key] += tally[key];
+    if (strategy === STRATEGIES[0]) buses.push(tally.buses);
   }
   const hours = total.duration / 3_600_000;
   return {
@@ -146,3 +150,14 @@ const results = STRATEGIES.map((strategy) => {
 const base = results[0];
 for (const row of results) row["LTA saved %"] = +(100 * (1 - row["LTA/hr"] / base["LTA/hr"])).toFixed(0);
 console.table(results);
+
+const median = (values) => values.length ? values.sort((a, b) => a - b)[values.length >> 1] / 60_000 : null;
+console.table([1, 2, 3].map((count) => {
+  const reached = buses.filter((list) => list.length >= count).map((list) => list[count - 1]);
+  return {
+    "end after": `${count} bus${count > 1 ? "es" : ""}`,
+    "reached %": +(100 * reached.length / buses.length).toFixed(0),
+    "median min": +(median(reached) ?? 0).toFixed(1),
+    "90th pct min": reached.length ? +(reached.sort((a, b) => a - b)[Math.floor(reached.length * 0.9)] / 60_000).toFixed(1) : null,
+  };
+}));

@@ -2,7 +2,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { fetchStop } = require("../functions/src/poller");
 
-const STOPS = (process.env.STOPS ?? "01012,01019,09047,83139,52009,75009,28009,46009,10009,63139").split(",");
+const listed = path.join(__dirname, "stops.txt");
+const STOPS = (process.env.STOPS ?? (fs.existsSync(listed) ? fs.readFileSync(listed, "utf8").trim() : "01012,01019,09047,83139,52009,75009,28009,46009,10009,63139")).split(",");
 const INTERVAL = Number(process.env.INTERVAL ?? 10) * 1000;
 const MINUTES = Number(process.env.MINUTES ?? 180);
 const key = process.env.LTA_ACCOUNT_KEY;
