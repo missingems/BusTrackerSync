@@ -9,7 +9,7 @@ const REPUSH_EVERY = 120_000;
 const SHIFT_THRESHOLD = 10_000;
 const COUNTDOWN_LEAD = 60_000;
 const MIN_FRESH = 15_000;
-const MAX_BUSES = 5;
+const MAX_BUSES = 3;
 
 function staleDate(arrival, now) {
   return Math.min(now + STALE_AFTER, Math.max(arrival - COUNTDOWN_LEAD, now + MIN_FRESH));

@@ -72,7 +72,7 @@ test("follows the next bus when the tracked one arrives, up to five buses", () =
     const later = next(registration({ tracked: now + 20_000, arrived }), { NextBus: bus(now + 600_000) }, now);
     assert.equal(later.arrived, arrived + 1);
   }
-  assert.equal(MAX_BUSES, 5);
+  assert.equal(MAX_BUSES, 3);
   assert.equal(next(registration({ tracked: now + 20_000, arrived: MAX_BUSES - 1 }), { NextBus: bus(now + 600_000) }, now).action, "end");
 });
 
