@@ -45,18 +45,21 @@ test("small shifts are not pushed until the re-push interval", () => {
   assert.equal(next(registration({ last, lastPushAt: now - 30_000 }), { NextBus: bus(now + 330_000) }, now).action, "update");
 });
 
-test("follows the next bus when the tracked one arrives, up to three buses", () => {
+test("follows the next bus when the tracked one arrives, up to five buses", () => {
   const first = next(registration({ tracked: now + 20_000 }), { NextBus: bus(now + 600_000) }, now);
   assert.equal(first.action, "update");
   assert.equal(first.tracked, now + 600_000);
   assert.equal(first.arrived, 1);
   assert.equal(first.contentState.hasArrived, false);
-  const second = next(registration({ tracked: now + 20_000, arrived: 1 }), { NextBus: bus(now + 600_000) }, now);
-  assert.equal(second.arrived, 2);
-  assert.equal(next(registration({ tracked: now + 20_000, arrived: 2 }), { NextBus: bus(now + 600_000) }, now).action, "end");
+  for (let arrived = 1; arrived < MAX_BUSES - 1; arrived += 1) {
+    const later = next(registration({ tracked: now + 20_000, arrived }), { NextBus: bus(now + 600_000) }, now);
+    assert.equal(later.arrived, arrived + 1);
+  }
+  assert.equal(MAX_BUSES, 5);
+  assert.equal(next(registration({ tracked: now + 20_000, arrived: MAX_BUSES - 1 }), { NextBus: bus(now + 600_000) }, now).action, "end");
 });
 
-test("ends as arrived when the third bus drops off the board", () => {
+test("ends as arrived when the fifth bus drops off the board", () => {
   const result = next(registration({ tracked: now + 20_000, arrived: MAX_BUSES - 1 }), { NextBus: bus(now + 600_000) }, now);
   assert.equal(result.action, "end");
   assert.equal(result.contentState.hasArrived, true);
