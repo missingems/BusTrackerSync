@@ -1,0 +1,9 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "busRoutes": { ".read": true },
+    "busStopRegions": { ".read": true },
+    "serviceStops": { ".read": true }
+  }
+}
