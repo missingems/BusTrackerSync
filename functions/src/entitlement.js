@@ -1,3 +1,4 @@
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { SignedDataVerifier, Environment } = require("@apple/app-store-server-library");
@@ -27,17 +28,24 @@ function entitled(transaction, now = Date.now()) {
     && (transaction.expiresDate == null || transaction.expiresDate > now);
 }
 
-async function hasPro(signedTransaction, now = Date.now()) {
-  if (typeof signedTransaction !== "string" || signedTransaction.length > MAX_LENGTH) return false;
+function owner(transaction) {
+  const original = transaction?.originalTransactionId;
+  if (original == null || original === "") return null;
+  return crypto.createHash("sha256").update(String(original)).digest("hex").slice(0, 32);
+}
+
+async function proOwner(signedTransaction, now = Date.now()) {
+  if (typeof signedTransaction !== "string" || signedTransaction.length > MAX_LENGTH) return null;
   verifiers ??= makeVerifiers();
   for (const verifier of verifiers) {
     try {
-      return entitled(await verifier.verifyAndDecodeTransaction(signedTransaction), now);
+      const transaction = await verifier.verifyAndDecodeTransaction(signedTransaction);
+      return entitled(transaction, now) ? owner(transaction) : null;
     } catch {
       continue;
     }
   }
-  return false;
+  return null;
 }
 
-module.exports = { hasPro, entitled, PRO_PRODUCT_IDS };
+module.exports = { proOwner, owner, entitled, PRO_PRODUCT_IDS };
