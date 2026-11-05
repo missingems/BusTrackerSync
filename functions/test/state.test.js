@@ -102,6 +102,29 @@ test("a bunched bus two minutes behind counts as the next bus", () => {
   assert.equal(next(registration({ tracked: now + 10_000, arrived: MAX_BUSES - 1 }), { NextBus: bus(now + 130_000) }, now).action, "end");
 });
 
+test("goes back to a bus that drops off the board and reappears", () => {
+  const handedOver = next(registration({ tracked: now + 20_000 }), { NextBus: bus(now + 740_000), NextBus2: bus(now + 1_520_000) }, now);
+  assert.equal(handedOver.tracked, now + 740_000);
+  assert.equal(handedOver.arrived, 1);
+  const later = now + 420_000;
+  const result = next(registration({ tracked: now + 740_000, arrived: 1 }), { NextBus: bus(later + 60_000), NextBus2: bus(now + 740_000), NextBus3: bus(now + 1_520_000) }, later);
+  assert.equal(result.tracked, later + 60_000);
+  assert.equal(result.arrived, 0);
+  assert.equal(result.contentState.following, appleDate(now + 740_000));
+});
+
+test("does not go back to a bus that is already at the stop", () => {
+  const result = next(registration({ tracked: now + 130_000, arrived: 1 }), { NextBus: bus(now + 10_000), NextBus2: bus(now + 130_000) }, now);
+  assert.equal(result.tracked, now + 130_000);
+  assert.equal(result.arrived, 1);
+});
+
+test("never jumps ahead of a later bus the rider picked", () => {
+  const result = next(registration({ tracked: now + 600_000 }), { NextBus: bus(now + 120_000), NextBus2: bus(now + 600_000) }, now);
+  assert.equal(result.tracked, now + 600_000);
+  assert.equal(result.arrived, 0);
+});
+
 test("a due bus whose estimate slips by a minute is still the same bus", () => {
   const result = next(registration({ tracked: now + 10_000 }), { NextBus: bus(now + 70_000) }, now);
   assert.equal(result.arrived, 0);

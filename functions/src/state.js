@@ -1,6 +1,7 @@
 const REFERENCE_EPOCH = 978307200;
 
 const HANDOVER = 90_000;
+const REAPPEARED_LEAD = 30_000;
 const ARRIVED_WINDOW = 60_000;
 const LINGERING = 120_000;
 const STALE_AFTER = 180_000;
@@ -84,8 +85,13 @@ function next(registration, service, now) {
   list.forEach((entry, i) => {
     if (Math.abs(entry.time - tracked) < Math.abs(list[index].time - tracked)) index = i;
   });
-  const chosen = list[index];
   let arrived = registration.arrived ?? 0;
+  const reappeared = list.findIndex((entry) => entry.time > now + REAPPEARED_LEAD && tracked - entry.time > HANDOVER);
+  if (arrived > 0 && reappeared !== -1 && reappeared < index) {
+    index = reappeared;
+    arrived -= 1;
+  }
+  const chosen = list[index];
   if (near && chosen.time - tracked > HANDOVER) {
     if (arrived + 1 >= MAX_BUSES) return arrivedEnd(registration, now);
     arrived += 1;
