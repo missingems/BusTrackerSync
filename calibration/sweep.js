@@ -10,7 +10,7 @@ const all = cases(services, rows);
 const train = all.filter((scenario) => !holdout.has(scenario.service));
 const test = all.filter((scenario) => holdout.has(scenario.service));
 
-const cost = (result) => result.meanError + 0.3 * result.p90Error + 3 * result.arrivalP90 + 1000 * result.missed / result.cases + 300 * result.stalled;
+const cost = (result) => result.meanError + 0.3 * result.p90Error + 3 * result.arrivalP90 + 1000 * result.missed / result.cases + 300 * result.stalled + 1000 * result.leftEarly;
 const steps = {
   maximumBusSpeed: [50, 60, 70].map((kmh) => kmh / 3.6),
   minimumCruise: [3, 4, 6, 8],
@@ -26,13 +26,13 @@ const steps = {
   minimumDwell: [1, 2, 3, 5],
   dwellShare: [0, 0.15, 0.25, 0.4, 0.55, 0.7],
   stopOverhead: [4, 8, 12, 16, 20, 25, 30],
-  lead: [0, 30, 45, 60, 75, 90, 120],
+  lead: [-30, -15, 0, 10, 20, 30, 45, 60],
 };
 
 const round = (value) => Number(value.toFixed(3));
 const report = (label, p) => {
   const fit = score(train, p), check = score(test, p);
-  console.log(label, JSON.stringify({ train: round(cost(fit)), holdout: round(cost(check)), medianError: round(check.medianError), p90Error: round(check.p90Error), arrivalMedian: round(check.arrivalMedian), arrivalP90: round(check.arrivalP90), missed: check.missed, stalled: round(check.stalled) }));
+  console.log(label, JSON.stringify({ train: round(cost(fit)), holdout: round(cost(check)), medianError: round(check.medianError), p90Error: round(check.p90Error), arrivalMedian: round(check.arrivalMedian), arrivalP90: round(check.arrivalP90), missed: check.missed, leftEarly: round(check.leftEarly), stalled: round(check.stalled) }));
 };
 
 console.log(`cases ${all.length} (train ${train.length}, holdout ${test.length} on ${[...holdout].join(",")})`);

@@ -186,6 +186,11 @@ function advance(bus, dt, now, goal, marks, p) {
 
 function cases(services, rows) {
   const lanes = routes(services);
+  const buses = new Map();
+  for (const row of rows) {
+    const key = `${row.service}|${row.index}|${row.at}`;
+    buses.set(key, [...(buses.get(key) ?? []), ...row.buses]);
+  }
   const all = [];
   for (const service of services) {
     const route = lanes[service];
@@ -197,7 +202,17 @@ function cases(services, rows) {
         if (arrival === undefined) return;
         const start = track.points.findIndex((point) => point.etas[index] && point.s < goal - 150 && goal - point.s < 6000);
         if (start < 0 || track.points[start].at > arrival - 60_000) return;
-        all.push({ service, index, goal, arrival, marks: route.marks, points: track.points.slice(start).filter((point) => point.at <= arrival + 60_000) });
+        const listed = track.points.findLastIndex((point) => point.etas[index]);
+        const lost = track.points[listed + 1]?.at;
+        const reference = track.points[listed].s;
+        const stillThere = (buses.get(`${service}|${index}|${lost}`) ?? []).some((bus) => {
+          if (!bus.lat || !bus.lng) return false;
+          const s = route.place([bus.lat, bus.lng]);
+          return s !== undefined && s >= reference - 50 && s <= reference + 400;
+        });
+        const dropped = stillThere ? undefined : lost;
+        const until = Math.max(arrival + 60_000, dropped ?? 0);
+        all.push({ service, index, goal, arrival, dropped, marks: route.marks, points: track.points.slice(start).filter((point) => point.at <= until) });
       });
     }
   }
@@ -205,10 +220,10 @@ function cases(services, rows) {
 }
 
 function replay(scenario, p) {
-  const { points, goal, marks, index, arrival } = scenario;
+  const { points, goal, marks, index, arrival, dropped } = scenario;
   const bus = { distance: points[0].s, reported: points[0].s, eta: points[0].etas[index], speed: 0, dwellUntil: 0 };
   const errors = [];
-  let reached, now = points[0].at, stalled = 0, moving = 0;
+  let reached, shortfall, now = points[0].at, stalled = 0, moving = 0;
   for (let i = 1; i < points.length; i++) {
     const point = points[i];
     const pace = (point.s - points[i - 1].s) / ((point.at - points[i - 1].at) / 1000);
@@ -220,12 +235,13 @@ function replay(scenario, p) {
         if (bus.speed < 0.3) stalled += STEP;
       }
       if (reached === undefined && bus.distance >= goal - REACHED) reached = now;
+      if (shortfall === undefined && dropped !== undefined && now >= dropped) shortfall = Math.max(goal - bus.distance, 0);
     }
     if (point.fresh && point.at <= arrival) errors.push(bus.distance - point.s);
     bus.reported = point.s;
     if (point.etas[index]) bus.eta = point.etas[index];
   }
-  return { errors, arrivalError: reached === undefined ? undefined : (reached - arrival) / 1000, stalled, moving };
+  return { errors, arrivalError: reached === undefined ? undefined : (reached - arrival) / 1000, shortfall, stalled, moving };
 }
 
 const quantile = (values, q) => {
@@ -234,12 +250,13 @@ const quantile = (values, q) => {
 };
 
 function score(scenarios, p) {
-  const errors = [], arrivals = [];
+  const errors = [], arrivals = [], shortfalls = [];
   let stalled = 0, moving = 0, missed = 0;
   for (const scenario of scenarios) {
     const result = replay(scenario, p);
     errors.push(...result.errors);
     if (result.arrivalError === undefined) missed++; else arrivals.push(result.arrivalError);
+    if (result.shortfall !== undefined) shortfalls.push(result.shortfall);
     stalled += result.stalled;
     moving += result.moving;
   }
@@ -255,6 +272,9 @@ function score(scenarios, p) {
     arrivalMedian: quantile(arrivals, 0.5),
     arrivalP90: quantile(arrivals.map(Math.abs), 0.9),
     missed,
+    dropped: shortfalls.length,
+    leftEarly: shortfalls.filter((meters) => meters > 30).length / Math.max(shortfalls.length, 1),
+    shortfallP90: quantile(shortfalls, 0.9),
     stalled: stalled / Math.max(moving, 1),
   };
 }
