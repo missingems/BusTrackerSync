@@ -6,7 +6,8 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret, defineString, defineInt } = require("firebase-functions/params");
 const { APNs, RecordingAPNs } = require("./apns");
 const { pollFor, pollRound } = require("./poller");
-const { hasPro } = require("./entitlement");
+const { proOwner } = require("./entitlement");
+const { claim } = require("./owners");
 
 initializeApp();
 
@@ -17,10 +18,10 @@ const APNS_KEY_ID = defineString("APNS_KEY_ID");
 const APNS_TEAM_ID = defineString("APNS_TEAM_ID", { default: "25WL36ABTN" });
 const APNS_TOPIC = defineString("APNS_TOPIC", { default: "sg.com.missingems.SGBusTime.push-type.liveactivity" });
 const POLL_SECONDS = defineInt("POLL_SECONDS", { default: 20 });
-const MAX_ACTIVITIES = defineInt("MAX_ACTIVITIES", { default: 500 });
 
 const emulated = process.env.FUNCTIONS_EMULATOR === "true";
 const activities = () => getDatabase().ref("liveActivities");
+const owners = () => getDatabase().ref("liveActivityOwners");
 
 function makeAPNs() {
   const value = APNS_KEY.value().trim();
@@ -45,28 +46,38 @@ exports.liveActivity = onRequest({ region: REGION, maxInstances: 5 }, async (req
   }
   if (request.method !== "PUT") return response.status(405).end();
 
-  const { id, token, service, stopCode, tracked, since, environment, transaction } = request.body ?? {};
-  const valid = ID.test(id ?? "") && TOKEN.test(token ?? "") && STOP.test(stopCode ?? "") && SERVICE.test(service ?? "")
-    && Number.isFinite(tracked) && Number.isFinite(since) && ["sandbox", "production"].includes(environment);
+  const { id, token, service, stopCode, tracked, since, expires, environment, transaction } = request.body ?? {};
+  const stop = request.body?.kind === "stop";
+  const valid = ID.test(id ?? "") && TOKEN.test(token ?? "") && STOP.test(stopCode ?? "") && ["sandbox", "production"].includes(environment)
+    && (stop ? Number.isFinite(expires) : SERVICE.test(service ?? "") && Number.isFinite(tracked) && Number.isFinite(since));
   if (!valid) return response.status(400).send("bad registration");
-  if (!emulated && !(await hasPro(transaction))) return response.status(403).send("not pro");
+  const owner = emulated ? null : await proOwner(transaction);
+  if (!emulated && !owner) return response.status(403).send("not pro");
+  if (owner) await claim(owners(), activities(), owner, id);
 
   const ref = activities().child(id);
   const existing = (await ref.get()).val();
-  if (!existing) {
-    const count = Object.keys((await activities().orderByKey().limitToFirst(MAX_ACTIVITIES.value()).get()).val() ?? {}).length;
-    if (count >= MAX_ACTIVITIES.value()) return response.status(503).send("full");
-  }
   const now = Date.now();
-  await ref.update({
+  const createdAt = existing?.createdAt ?? now;
+  await ref.update(stop ? {
+    kind: "stop",
+    token,
+    stopCode,
+    environment,
+    expires: Math.round(expires * 1000),
+    createdAt,
+    updatedAt: now,
+    replaced: null,
+  } : {
     token,
     service,
     stopCode,
     environment,
     tracked: existing?.last && existing.token === token ? existing.tracked : Math.round(tracked * 1000),
     since: Math.round(since * 1000),
-    createdAt: existing?.createdAt ?? now,
+    createdAt,
     updatedAt: now,
+    replaced: null,
   });
   return response.status(204).end();
 });

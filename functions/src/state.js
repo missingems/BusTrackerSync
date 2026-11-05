@@ -1,18 +1,29 @@
 const REFERENCE_EPOCH = 978307200;
 
-const HANDOVER = 240_000;
+const HANDOVER = 90_000;
 const ARRIVED_WINDOW = 60_000;
 const LINGERING = 120_000;
 const STALE_AFTER = 180_000;
-const MAX_LIFETIME = 2 * 60 * 60_000;
+const MAX_LIFETIME = 30 * 60_000;
 const REPUSH_EVERY = 120_000;
 const SHIFT_THRESHOLD = 10_000;
 const COUNTDOWN_LEAD = 60_000;
 const MIN_FRESH = 15_000;
-const MAX_BUSES = 5;
+const MAX_BUSES = 3;
+const FAR = 10 * 60_000;
+const FAR_POLL = 50_000;
+const STOP_BUSES = 5;
+const STOP_WINDOW = 20 * 60_000;
+const DEPARTED_AFTER = 30_000;
+const BLANK_TOLERANCE = 90_000;
+const STOP_SHIFT = 30_000;
 
 function staleDate(arrival, now) {
   return Math.min(now + STALE_AFTER, Math.max(arrival - COUNTDOWN_LEAD, now + MIN_FRESH));
+}
+
+function nextPollAt(arrival, now) {
+  return arrival - now > FAR ? now + FAR_POLL : now;
 }
 
 function minutesAway(arrival, at) {
@@ -53,7 +64,7 @@ function arrivedEnd(registration, now) {
 function next(registration, service, now) {
   const { tracked, since, createdAt } = registration;
 
-  if (now - createdAt > MAX_LIFETIME || tracked < now - 10 * 60_000) {
+  if (registration.replaced || now - createdAt > MAX_LIFETIME || tracked < now - 10 * 60_000) {
     const last = registration.last ?? {};
     return {
       action: "end",
@@ -103,12 +114,16 @@ function next(registration, service, now) {
   const ticked = last != null && registration.lastPushAt != null
     && shown >= 1
     && shown !== minutesAway(last.arrival, registration.lastPushAt);
-  const urgent = !last || registration.lastPushAt == null || ticked
+  const reached = registration.lastPushAt != null
+    && registration.lastPushAt < snapshot.arrival
+    && now >= snapshot.arrival;
+  const urgent = !last || registration.lastPushAt == null || ticked || reached
     || (shown >= 1 && shown !== minutesAway(last.arrival, now));
 
   return {
-    action: changed || due || ticked ? "update" : "none",
+    action: changed || due || ticked || reached ? "update" : "none",
     urgent,
+    nextPollAt: nextPollAt(chosen.time, now),
     tracked: chosen.time,
     arrived,
     last: snapshot,
@@ -117,4 +132,60 @@ function next(registration, service, now) {
   };
 }
 
-module.exports = { next, contentState, appleDate, staleDate, REFERENCE_EPOCH, MAX_BUSES };
+function stopArrivals(services, now) {
+  return (services ?? [])
+    .flatMap((service) => arrivals(service).map(({ time }) => ({ service: service.ServiceNo, operatorCode: service.Operator || null, time })))
+    .filter(({ time }) => time >= now - DEPARTED_AFTER && time - now <= STOP_WINDOW)
+    .sort((a, b) => a.time - b.time)
+    .slice(0, STOP_BUSES);
+}
+
+function stopState(list) {
+  return {
+    arrivals: list.map(({ service, operatorCode, time }) => (operatorCode ? { service, operatorCode, time: appleDate(time) } : { service, time: appleDate(time) })),
+  };
+}
+
+function storedArrivals(last) {
+  return Object.values(last ?? {}).map(({ service, operatorCode, time }) => ({ service, operatorCode: operatorCode ?? null, time }));
+}
+
+function nextStop(registration, services, now) {
+  const { createdAt, expires, lastPushAt } = registration;
+  const last = registration.last != null ? storedArrivals(registration.last) : lastPushAt != null ? [] : null;
+  if (registration.replaced || now >= expires || now - createdAt > MAX_LIFETIME) {
+    return { action: "end", contentState: stopState(last ?? []), dismissalDate: now };
+  }
+
+  const list = stopArrivals(services, now);
+  if (list.length === 0 && last?.length && now - (lastPushAt ?? 0) < BLANK_TOLERANCE) {
+    return { action: "none", nextPollAt: null };
+  }
+
+  const first = list[0];
+  const poll = first ? nextPollAt(first.time, now) : now + FAR_POLL;
+  const changed = !last
+    || last.length !== list.length
+    || list.some((entry, i) => entry.service !== last[i].service
+      || entry.operatorCode !== last[i].operatorCode
+      || Math.abs(entry.time - last[i].time) >= STOP_SHIFT);
+  const due = now - (lastPushAt ?? 0) >= REPUSH_EVERY;
+  const shownChanged = (count) => last != null && lastPushAt != null
+    && list.slice(0, count).some((entry, i) => last[i] != null
+      && minutesAway(entry.time, now) >= 1
+      && minutesAway(entry.time, now) !== minutesAway(last[i].time, lastPushAt));
+  const ticked = shownChanged(2);
+  const reached = first != null && lastPushAt != null && lastPushAt < first.time && now >= first.time;
+  const urgent = !last || lastPushAt == null || reached || shownChanged(1) || first?.service !== last[0]?.service;
+
+  return {
+    action: changed || due || ticked || reached ? "update" : "none",
+    urgent,
+    nextPollAt: poll,
+    last: list,
+    contentState: stopState(list),
+    staleDate: staleDate(first?.time ?? now + STALE_AFTER, now),
+  };
+}
+
+module.exports = { next, nextStop, contentState, appleDate, staleDate, REFERENCE_EPOCH, MAX_BUSES, FAR_POLL };

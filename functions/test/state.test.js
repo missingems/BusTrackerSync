@@ -1,9 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { next, appleDate, staleDate, MAX_BUSES } = require("../src/state");
+const { next, appleDate, staleDate, MAX_BUSES, FAR_POLL } = require("../src/state");
 const crypto = require("node:crypto");
 const { APNs, payloadFor, isGone } = require("../src/apns");
-const { pollRound } = require("../src/poller");
+const { pollRound, pollFor } = require("../src/poller");
 
 const now = Date.parse("2026-11-02T08:00:00Z");
 const iso = (ms) => new Date(ms).toISOString().replace("Z", "+00:00");
@@ -54,6 +54,17 @@ test("pushes when the minutes shown would change, so the Live Activity matches t
   assert.equal(next(registration({ last: final, lastPushAt: now - 20_000, tracked: now + 50_000 }), { NextBus: bus(now + 50_000) }, now).action, "none");
 });
 
+test("pushes urgently once the bus reaches its arrival time, so the countdown doesn't sit at 0:00", () => {
+  const last = { arrival: now - 5_000, following: null, load: "SEA", vehicle: "SD" };
+  const service = { NextBus: bus(now - 5_000) };
+  const reached = next(registration({ last, lastPushAt: now - 70_000, tracked: now - 5_000 }), service, now);
+  assert.equal(reached.action, "update");
+  assert.equal(reached.urgent, true);
+  assert.equal(next(registration({ last, lastPushAt: now - 3_000, tracked: now - 5_000 }), service, now).action, "none");
+  const ahead = { ...last, arrival: now + 15_000 };
+  assert.equal(next(registration({ last: ahead, lastPushAt: now - 40_000, tracked: now + 15_000 }), { NextBus: bus(now + 15_000) }, now).action, "none");
+});
+
 test("updates that change the minutes shown go out urgently, others don't", () => {
   const last = { arrival: now + 300_000, following: null, load: "SEA", vehicle: "SD" };
   assert.equal(next(registration({ last, lastPushAt: now - 70_000 }), { NextBus: bus(now + 300_000) }, now).urgent, true);
@@ -62,7 +73,7 @@ test("updates that change the minutes shown go out urgently, others don't", () =
   assert.equal(next(registration({ last, lastPushAt: now - 30_000 }), { NextBus: bus(now + 303_000, { Load: "SDA" }) }, now).urgent, false);
 });
 
-test("follows the next bus when the tracked one arrives, up to five buses", () => {
+test("follows the next bus when the tracked one arrives, up to three buses", () => {
   const first = next(registration({ tracked: now + 20_000 }), { NextBus: bus(now + 600_000) }, now);
   assert.equal(first.action, "update");
   assert.equal(first.tracked, now + 600_000);
@@ -72,11 +83,11 @@ test("follows the next bus when the tracked one arrives, up to five buses", () =
     const later = next(registration({ tracked: now + 20_000, arrived }), { NextBus: bus(now + 600_000) }, now);
     assert.equal(later.arrived, arrived + 1);
   }
-  assert.equal(MAX_BUSES, 5);
+  assert.equal(MAX_BUSES, 3);
   assert.equal(next(registration({ tracked: now + 20_000, arrived: MAX_BUSES - 1 }), { NextBus: bus(now + 600_000) }, now).action, "end");
 });
 
-test("ends as arrived when the fifth bus drops off the board", () => {
+test("ends as arrived when the third bus drops off the board", () => {
   const result = next(registration({ tracked: now + 20_000, arrived: MAX_BUSES - 1 }), { NextBus: bus(now + 600_000) }, now);
   assert.equal(result.action, "end");
   assert.equal(result.contentState.hasArrived, true);
@@ -84,9 +95,28 @@ test("ends as arrived when the fifth bus drops off the board", () => {
   assert.equal(result.dismissalDate, now + 120_000);
 });
 
+test("a bunched bus two minutes behind counts as the next bus", () => {
+  const result = next(registration({ tracked: now + 10_000 }), { NextBus: bus(now + 130_000) }, now);
+  assert.equal(result.arrived, 1);
+  assert.equal(result.tracked, now + 130_000);
+  assert.equal(next(registration({ tracked: now + 10_000, arrived: MAX_BUSES - 1 }), { NextBus: bus(now + 130_000) }, now).action, "end");
+});
+
+test("a due bus whose estimate slips by a minute is still the same bus", () => {
+  const result = next(registration({ tracked: now + 10_000 }), { NextBus: bus(now + 70_000) }, now);
+  assert.equal(result.arrived, 0);
+  assert.equal(result.tracked, now + 70_000);
+});
+
 test("ends as arrived when the service disappears near arrival, waits otherwise", () => {
   assert.equal(next(registration({ tracked: now + 30_000 }), undefined, now).action, "end");
   assert.equal(next(registration(), undefined, now).action, "none");
+});
+
+test("a Live Activity ends after 30 minutes", () => {
+  const service = { NextBus: bus(now + 300_000) };
+  assert.equal(next(registration({ createdAt: now - 29 * 60_000 }), service, now).action, "update");
+  assert.equal(next(registration({ createdAt: now - 31 * 60_000 }), service, now).action, "end");
 });
 
 test("ends stale registrations", () => {
@@ -203,7 +233,7 @@ test("malformed registrations are removed without calling LTA", async () => {
 
 test("LTA calls are capped in flight", async () => {
   const data = {};
-  for (let i = 0; i < 30; i++) data[`id-${i}`] = registration({ stopCode: String(10000 + i) });
+  for (let i = 0; i < 60; i++) data[`id-${i}`] = registration({ stopCode: String(10000 + i) });
   let inFlight = 0;
   let peak = 0;
   await pollRound({
@@ -218,7 +248,27 @@ test("LTA calls are capped in flight", async () => {
     },
     now: () => now,
   });
-  assert.ok(peak <= 8, `peak ${peak}`);
+  assert.ok(peak <= 24, `peak ${peak}`);
+});
+
+test("stops that waited longest are polled first", async () => {
+  const data = {
+    "id-recent": registration({ stopCode: "10001", lastPushAt: now - 5_000 }),
+    "id-new": registration({ stopCode: "10002" }),
+    "id-old": registration({ stopCode: "10003", lastPushAt: now - 60_000 }),
+  };
+  const order = [];
+  await pollRound({
+    ref: memoryRef(data),
+    accountKey: "k",
+    apns: { send: async () => ({ status: 200 }) },
+    fetcher: async (stopCode) => {
+      order.push(stopCode);
+      return [];
+    },
+    now: () => now,
+  });
+  assert.deepEqual(order, ["10002", "10003", "10001"]);
 });
 
 test("the APNs token is reused across clients within a 30-minute window", () => {
@@ -238,4 +288,41 @@ test("the stale date lands a minute before arrival so the Live Activity counts d
   assert.equal(staleDate(now + 10 * 60_000, now), now + 180_000);
   assert.equal(staleDate(now + 3 * 60_000, now), now + 2 * 60_000);
   assert.equal(staleDate(now + 30_000, now), now + 15_000);
+});
+
+test("a bus more than ten minutes away is polled less often", () => {
+  const far = next(registration({ tracked: now + 900_000 }), { NextBus: bus(now + 900_000) }, now);
+  assert.equal(far.nextPollAt, now + FAR_POLL);
+  const close = next(registration(), { NextBus: bus(now + 300_000) }, now);
+  assert.equal(close.nextPollAt, now);
+});
+
+test("a far registration waits for its next poll without calling LTA", async () => {
+  const ref = memoryRef({ a: registration({ nextPollAt: now + 30_000 }) });
+  const stats = await pollRound({ ref, accountKey: "k", apns: { send: async () => assert.fail() }, fetcher: async () => assert.fail(), now: () => now });
+  assert.equal(stats.waiting, 1);
+  assert.equal(stats.soonest, now + 30_000);
+});
+
+test("polling a far bus schedules its next poll, and a close bus clears it", async () => {
+  const ref = memoryRef({ a: registration({ tracked: now + 900_000 }) });
+  const options = { ref, accountKey: "k", apns: { send: async () => ({ status: 200 }) }, now: () => now };
+  const stats = await pollRound({ ...options, fetcher: async () => [{ ServiceNo: "15", NextBus: bus(now + 900_000) }] });
+  assert.equal(ref.data.a.nextPollAt, now + FAR_POLL);
+  assert.equal(stats.soonest, now + FAR_POLL);
+  ref.data.a.nextPollAt = now;
+  await pollRound({ ...options, fetcher: async () => [{ ServiceNo: "15", NextBus: bus(now + 300_000) }] });
+  assert.equal(ref.data.a.nextPollAt, null);
+});
+
+test("the poller stops early when every bus is far away", async () => {
+  const ref = memoryRef({ a: registration({ nextPollAt: Date.now() + 600_000 }) });
+  const rounds = await pollFor(58_000, 20, { ref, accountKey: "k", apns: {}, fetcher: async () => assert.fail() });
+  assert.equal(rounds.length, 1);
+});
+
+test("a bus activity replaced by the subscriber's newer one ends and dismisses at once", () => {
+  const result = next(registration({ tracked: now + 300_000, replaced: now - 1_000 }), { NextBus: bus(now + 300_000) }, now);
+  assert.equal(result.action, "end");
+  assert.equal(result.dismissalDate, now);
 });
