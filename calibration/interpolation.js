@@ -5,22 +5,22 @@ const data = path.join(__dirname, "data");
 const read = (name) => JSON.parse(fs.readFileSync(path.join(data, name), "utf8"));
 
 const APP = {
-  maximumBusSpeed: 60 / 3.6,
-  minimumCruise: 4,
+  maximumBusSpeed: 70 / 3.6,
+  minimumCruise: 6,
   crawlReach: 18,
   driftTolerance: 40,
-  pacedDriftTolerance: 150,
+  pacedDriftTolerance: 20,
   catchUpDuration: 10,
-  pacedCatchUpDuration: 20,
-  acceleration: 1,
+  pacedCatchUpDuration: 45,
+  acceleration: 0.6,
   deceleration: 1.3,
-  catchUpAcceleration: 3,
-  dwellDuration: 10,
+  catchUpAcceleration: 4,
+  dwellDuration: 15,
   minimumDwell: 3,
   dwellShare: 0.25,
-  stopOverhead: 8,
+  stopOverhead: 16,
   stopSetback: 5,
-  lead: 0,
+  lead: 60,
 };
 
 const STEP = 0.1;
