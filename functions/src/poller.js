@@ -142,4 +142,4 @@ async function pollFor(duration, interval, options) {
   return rounds;
 }
 
-module.exports = { pollRound, pollFor, fetchStop };
+module.exports = { pollRound, pollFor, fetchStop, inPool };

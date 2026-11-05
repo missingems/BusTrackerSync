@@ -1,11 +1,12 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { fetchStop } = require("../functions/src/poller");
+const { fetchStop, inPool } = require("../functions/src/poller");
 
 const SERVICES = (process.env.SERVICES ?? "106,14,190").split(",");
 const DIRECTION = Number(process.env.DIRECTION ?? 0);
 const INTERVAL = Number(process.env.INTERVAL ?? 20) * 1000;
 const MINUTES = Number(process.env.MINUTES ?? 180);
+const CONCURRENCY = Number(process.env.CONCURRENCY ?? 24);
 const key = process.env.LTA_ACCOUNT_KEY;
 if (!key) throw new Error("Set LTA_ACCOUNT_KEY");
 
@@ -41,7 +42,7 @@ async function saveStops() {
 
 async function round() {
   const at = Date.now();
-  await Promise.all(Object.entries(byStop).map(async ([stop, wanted]) => {
+  await inPool(Object.entries(byStop), CONCURRENCY, async ([stop, wanted]) => {
     try {
       const services = await fetchStop(stop, key);
       for (const { service, index } of wanted) {
@@ -52,7 +53,7 @@ async function round() {
     } catch (error) {
       console.warn(new Date(at).toISOString(), stop, error.message);
     }
-  }));
+  });
 }
 
 (async () => {
