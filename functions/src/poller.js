@@ -87,8 +87,8 @@ async function pollRound({ ref, accountKey, apns, fetcher = fetchStop, now = () 
         due(nextPollAt ?? at);
         if (stop) {
           if (nextPollAt !== (registration.nextPollAt ?? null)) await patch(ref, id, registration.token, { nextPollAt });
-        } else if (result.tracked && (nextPollAt || registration.nextPollAt || result.tracked !== registration.tracked || result.arrived !== (registration.arrived ?? 0))) {
-          await patch(ref, id, registration.token, { tracked: result.tracked, arrived: result.arrived, nextPollAt });
+        } else if (result.tracked && (nextPollAt || registration.nextPollAt || result.tracked !== registration.tracked)) {
+          await patch(ref, id, registration.token, { tracked: result.tracked, nextPollAt });
         }
         return;
       }
@@ -123,7 +123,7 @@ async function pollRound({ ref, accountKey, apns, fetcher = fetchStop, now = () 
       }
       stats.updates += 1;
       due(nextPollAt ?? at);
-      const saved = stop ? { last: result.last } : { tracked: result.tracked, arrived: result.arrived, last: result.last };
+      const saved = stop ? { last: result.last } : { tracked: result.tracked, last: result.last };
       await patch(ref, id, registration.token, { ...saved, lastPushAt: at, nextPollAt });
     }));
   });
