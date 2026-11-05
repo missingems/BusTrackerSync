@@ -67,7 +67,7 @@ test("only the first two buses' minutes trigger a push", () => {
   assert.equal(nextStop(stop({ last, lastPushAt: now - 10_000 }), services, now + 10_000).action, "none");
 });
 
-test("a bus reaching its arrival time pushes urgently, so the countdown doesn't sit at 0:00", () => {
+test("a bus reaching its arrival time pushes urgently, so the activity shows it has arrived", () => {
   const services = [{ ServiceNo: "15", NextBus: bus(now - 5_000) }];
   const result = nextStop(stop({ last: [{ service: "15", time: now - 5_000 }], lastPushAt: now - 10_000 }), services, now);
   assert.equal(result.action, "update");

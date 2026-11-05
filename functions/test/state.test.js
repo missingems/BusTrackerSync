@@ -51,10 +51,11 @@ test("pushes when the minutes shown would change, so the Live Activity matches t
   assert.equal(next(registration({ last, lastPushAt: now - 50_000 }), service, now).action, "none");
   assert.equal(next(registration({ last, lastPushAt: now - 70_000 }), service, now).action, "update");
   const final = { ...last, arrival: now + 50_000 };
-  assert.equal(next(registration({ last: final, lastPushAt: now - 20_000, tracked: now + 50_000 }), { NextBus: bus(now + 50_000) }, now).action, "none");
+  assert.equal(next(registration({ last: final, lastPushAt: now - 20_000, tracked: now + 50_000 }), { NextBus: bus(now + 50_000) }, now).action, "update");
+  assert.equal(next(registration({ last: final, lastPushAt: now - 5_000, tracked: now + 50_000 }), { NextBus: bus(now + 50_000) }, now).action, "none");
 });
 
-test("pushes urgently once the bus reaches its arrival time, so the countdown doesn't sit at 0:00", () => {
+test("pushes urgently once the bus reaches its arrival time, so the activity shows it has arrived", () => {
   const last = { arrival: now - 5_000, following: null, load: "SEA", vehicle: "SD" };
   const service = { NextBus: bus(now - 5_000) };
   const reached = next(registration({ last, lastPushAt: now - 70_000, tracked: now - 5_000 }), service, now);
@@ -270,11 +271,9 @@ test("the APNs token is reused across clients within a 30-minute window", () => 
   assert.equal(iat, (start + 30 * 60_000) / 1000);
 });
 
-test("the stale date lands a minute before arrival so the Live Activity counts down on its own", () => {
-  const now = Date.parse("2026-11-03T12:00:00Z");
-  assert.equal(staleDate(now + 10 * 60_000, now), now + 180_000);
-  assert.equal(staleDate(now + 3 * 60_000, now), now + 2 * 60_000);
-  assert.equal(staleDate(now + 30_000, now), now + 15_000);
+test("the stale date only marks three minutes without a push", () => {
+  const now = Date.UTC(2026, 0, 1);
+  assert.equal(staleDate(now), now + 180_000);
 });
 
 test("a bus more than ten minutes away is polled less often", () => {

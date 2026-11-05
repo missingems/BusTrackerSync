@@ -6,8 +6,6 @@ const STALE_AFTER = 180_000;
 const MAX_LIFETIME = 30 * 60_000;
 const REPUSH_EVERY = 120_000;
 const SHIFT_THRESHOLD = 10_000;
-const COUNTDOWN_LEAD = 60_000;
-const MIN_FRESH = 15_000;
 const FAR = 10 * 60_000;
 const FAR_POLL = 50_000;
 const STOP_BUSES = 5;
@@ -16,8 +14,8 @@ const DEPARTED_AFTER = 30_000;
 const BLANK_TOLERANCE = 90_000;
 const STOP_SHIFT = 30_000;
 
-function staleDate(arrival, now) {
-  return Math.min(now + STALE_AFTER, Math.max(arrival - COUNTDOWN_LEAD, now + MIN_FRESH));
+function staleDate(now) {
+  return now + STALE_AFTER;
 }
 
 function nextPollAt(arrival, now) {
@@ -99,13 +97,13 @@ function next(registration, service, now) {
   const due = now - (registration.lastPushAt ?? 0) >= REPUSH_EVERY;
   const shown = minutesAway(snapshot.arrival, now);
   const ticked = last != null && registration.lastPushAt != null
-    && shown >= 1
+    && shown >= 0
     && shown !== minutesAway(last.arrival, registration.lastPushAt);
   const reached = registration.lastPushAt != null
     && registration.lastPushAt < snapshot.arrival
     && now >= snapshot.arrival;
   const urgent = !last || registration.lastPushAt == null || ticked || reached
-    || (shown >= 1 && shown !== minutesAway(last.arrival, now));
+    || (shown >= 0 && shown !== minutesAway(last.arrival, now));
 
   return {
     action: changed || due || ticked || reached ? "update" : "none",
@@ -114,7 +112,7 @@ function next(registration, service, now) {
     tracked: chosen.time,
     last: snapshot,
     contentState: contentState({ ...snapshot, since: Math.min(since, chosen.time), hasArrived: false }),
-    staleDate: staleDate(chosen.time, now),
+    staleDate: staleDate(now),
   };
 }
 
@@ -158,7 +156,7 @@ function nextStop(registration, services, now) {
   const due = now - (lastPushAt ?? 0) >= REPUSH_EVERY;
   const shownChanged = (count) => last != null && lastPushAt != null
     && list.slice(0, count).some((entry, i) => last[i] != null
-      && minutesAway(entry.time, now) >= 1
+      && minutesAway(entry.time, now) >= 0
       && minutesAway(entry.time, now) !== minutesAway(last[i].time, lastPushAt));
   const ticked = shownChanged(2);
   const reached = first != null && lastPushAt != null && lastPushAt < first.time && now >= first.time;
@@ -170,7 +168,7 @@ function nextStop(registration, services, now) {
     nextPollAt: poll,
     last: list,
     contentState: stopState(list),
-    staleDate: staleDate(first?.time ?? now + STALE_AFTER, now),
+    staleDate: staleDate(now),
   };
 }
 
