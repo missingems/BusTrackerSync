@@ -300,3 +300,9 @@ test("the poller stops early when every bus is far away", async () => {
   const rounds = await pollFor(58_000, 20, { ref, accountKey: "k", apns: {}, fetcher: async () => assert.fail() });
   assert.equal(rounds.length, 1);
 });
+
+test("a bus activity replaced by the subscriber's newer one ends and dismisses at once", () => {
+  const result = next(registration({ tracked: now + 300_000, replaced: now - 1_000 }), { NextBus: bus(now + 300_000) }, now);
+  assert.equal(result.action, "end");
+  assert.equal(result.dismissalDate, now);
+});

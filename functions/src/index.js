@@ -72,6 +72,7 @@ exports.liveActivity = onRequest({ region: REGION, maxInstances: 5 }, async (req
     expires: Math.round(expires * 1000),
     createdAt,
     updatedAt: now,
+    replaced: null,
   } : {
     token,
     service,
@@ -81,6 +82,7 @@ exports.liveActivity = onRequest({ region: REGION, maxInstances: 5 }, async (req
     since: Math.round(since * 1000),
     createdAt,
     updatedAt: now,
+    replaced: null,
   });
   return response.status(204).end();
 });

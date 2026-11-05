@@ -170,3 +170,13 @@ test("a stop registration missing its expiry is removed", async () => {
   const stats = await pollRound({ ref, accountKey: "k", apns: {}, fetcher: async () => assert.fail(), now: () => now, log: {} });
   assert.equal(stats.removed, 1);
 });
+
+test("a stop activity replaced by the subscriber's newer one is ended and dismissed at once", async () => {
+  const ref = memoryRef({ s: stop(pushed(now - 20_000, { replaced: now - 1_000 })) });
+  const pushes = [];
+  await pollRound({ ref, accountKey: "k", apns: { send: async (push) => { pushes.push(push); return { status: 200 }; } }, fetcher: async () => board, now: () => now, log: {} });
+  assert.equal(pushes[0].payload.aps.event, "end");
+  assert.equal(pushes[0].payload.aps["dismissal-date"], Math.floor(now / 1000));
+  assert.equal(pushes[0].payload.aps["content-state"].arrivals[0].service, "15");
+  assert.equal(ref.data.s, undefined);
+});

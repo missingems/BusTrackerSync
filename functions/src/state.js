@@ -64,7 +64,7 @@ function arrivedEnd(registration, now) {
 function next(registration, service, now) {
   const { tracked, since, createdAt } = registration;
 
-  if (now - createdAt > MAX_LIFETIME || tracked < now - 10 * 60_000) {
+  if (registration.replaced || now - createdAt > MAX_LIFETIME || tracked < now - 10 * 60_000) {
     const last = registration.last ?? {};
     return {
       action: "end",
@@ -153,7 +153,7 @@ function storedArrivals(last) {
 function nextStop(registration, services, now) {
   const { createdAt, expires, lastPushAt } = registration;
   const last = registration.last != null ? storedArrivals(registration.last) : lastPushAt != null ? [] : null;
-  if (now >= expires || now - createdAt > MAX_LIFETIME) {
+  if (registration.replaced || now >= expires || now - createdAt > MAX_LIFETIME) {
     return { action: "end", contentState: stopState(last ?? []), dismissalDate: now };
   }
 
