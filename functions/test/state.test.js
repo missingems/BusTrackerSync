@@ -233,7 +233,7 @@ test("malformed registrations are removed without calling LTA", async () => {
 
 test("LTA calls are capped in flight", async () => {
   const data = {};
-  for (let i = 0; i < 30; i++) data[`id-${i}`] = registration({ stopCode: String(10000 + i) });
+  for (let i = 0; i < 60; i++) data[`id-${i}`] = registration({ stopCode: String(10000 + i) });
   let inFlight = 0;
   let peak = 0;
   await pollRound({
@@ -248,7 +248,27 @@ test("LTA calls are capped in flight", async () => {
     },
     now: () => now,
   });
-  assert.ok(peak <= 8, `peak ${peak}`);
+  assert.ok(peak <= 24, `peak ${peak}`);
+});
+
+test("stops that waited longest are polled first", async () => {
+  const data = {
+    "id-recent": registration({ stopCode: "10001", lastPushAt: now - 5_000 }),
+    "id-new": registration({ stopCode: "10002" }),
+    "id-old": registration({ stopCode: "10003", lastPushAt: now - 60_000 }),
+  };
+  const order = [];
+  await pollRound({
+    ref: memoryRef(data),
+    accountKey: "k",
+    apns: { send: async () => ({ status: 200 }) },
+    fetcher: async (stopCode) => {
+      order.push(stopCode);
+      return [];
+    },
+    now: () => now,
+  });
+  assert.deepEqual(order, ["10002", "10003", "10001"]);
 });
 
 test("the APNs token is reused across clients within a 30-minute window", () => {

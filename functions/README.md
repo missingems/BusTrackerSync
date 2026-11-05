@@ -95,5 +95,6 @@ These figures use list prices at the time of writing (CPU $0.000024/vCPU-s, memo
 - Because the server only pushes on visible changes, a typical activity gets one push every 20–60 s, and at least one a minute until its last minute.
 
 **Abuse**
-- The register endpoint is unauthenticated. Abuse is capped by input validation, `MAX_ACTIVITIES` (default 500) and the 2 h lifetime.
+- There is no global cap on activities. Registration needs a verified Pro purchase, and each owner holds one activity at a time; a new one ends the old.
+- Each round serves the stops that have waited longest first, so if a round runs long under load, no activity is starved.
 - Before launch, add App Check, or a shared secret in the app, so that strangers can't run up the LTA quota.

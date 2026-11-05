@@ -2,7 +2,7 @@ const { next, nextStop } = require("./state");
 const { payloadFor, isGone } = require("./apns");
 
 const LTA_URL = "https://datamall2.mytransport.sg/ltaodataservice/v3/BusArrival";
-const LTA_CONCURRENCY = 8;
+const LTA_CONCURRENCY = 24;
 const END_ATTEMPTS = 3;
 const REQUIRED = {
   bus: ["token", "service", "stopCode", "environment", "tracked", "since", "createdAt"],
@@ -61,7 +61,9 @@ async function pollRound({ ref, accountKey, apns, fetcher = fetchStop, now = () 
     (byStop[registration.stopCode] ??= []).push([id, registration]);
   }
 
-  await inPool(Object.entries(byStop), LTA_CONCURRENCY, async ([stopCode, entries]) => {
+  const waited = (entries) => Math.min(...entries.map(([, registration]) => registration.lastPushAt ?? 0));
+  const stops = Object.entries(byStop).sort(([, a], [, b]) => waited(a) - waited(b));
+  await inPool(stops, LTA_CONCURRENCY, async ([stopCode, entries]) => {
     let services;
     try {
       services = await fetcher(stopCode, accountKey);

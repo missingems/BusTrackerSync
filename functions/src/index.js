@@ -18,7 +18,6 @@ const APNS_KEY_ID = defineString("APNS_KEY_ID");
 const APNS_TEAM_ID = defineString("APNS_TEAM_ID", { default: "25WL36ABTN" });
 const APNS_TOPIC = defineString("APNS_TOPIC", { default: "sg.com.missingems.SGBusTime.push-type.liveactivity" });
 const POLL_SECONDS = defineInt("POLL_SECONDS", { default: 20 });
-const MAX_ACTIVITIES = defineInt("MAX_ACTIVITIES", { default: 500 });
 
 const emulated = process.env.FUNCTIONS_EMULATOR === "true";
 const activities = () => getDatabase().ref("liveActivities");
@@ -58,10 +57,6 @@ exports.liveActivity = onRequest({ region: REGION, maxInstances: 5 }, async (req
 
   const ref = activities().child(id);
   const existing = (await ref.get()).val();
-  if (!existing) {
-    const count = Object.keys((await activities().orderByKey().limitToFirst(MAX_ACTIVITIES.value()).get()).val() ?? {}).length;
-    if (count >= MAX_ACTIVITIES.value()) return response.status(503).send("full");
-  }
   const now = Date.now();
   const createdAt = existing?.createdAt ?? now;
   await ref.update(stop ? {
