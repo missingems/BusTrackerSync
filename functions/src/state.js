@@ -1,6 +1,5 @@
 const REFERENCE_EPOCH = 978307200;
 
-const HANDOVER = 90_000;
 const ARRIVED_WINDOW = 60_000;
 const LINGERING = 120_000;
 const STALE_AFTER = 180_000;
@@ -9,7 +8,6 @@ const REPUSH_EVERY = 120_000;
 const SHIFT_THRESHOLD = 10_000;
 const COUNTDOWN_LEAD = 60_000;
 const MIN_FRESH = 15_000;
-const MAX_BUSES = 3;
 const FAR = 10 * 60_000;
 const FAR_POLL = 50_000;
 const STOP_BUSES = 5;
@@ -74,26 +72,15 @@ function next(registration, service, now) {
     };
   }
 
-  const list = arrivals(service);
-  const near = tracked < now + ARRIVED_WINDOW;
+  const list = arrivals(service).filter(({ time }) => time >= now - DEPARTED_AFTER);
   if (list.length === 0) {
-    return near ? arrivedEnd(registration, now) : { action: "none" };
+    return tracked < now + ARRIVED_WINDOW ? arrivedEnd(registration, now) : { action: "none" };
   }
 
-  let index = 0;
-  list.forEach((entry, i) => {
-    if (Math.abs(entry.time - tracked) < Math.abs(list[index].time - tracked)) index = i;
-  });
-  const chosen = list[index];
-  let arrived = registration.arrived ?? 0;
-  if (near && chosen.time - tracked > HANDOVER) {
-    if (arrived + 1 >= MAX_BUSES) return arrivedEnd(registration, now);
-    arrived += 1;
-  }
-
+  const [chosen, after] = list;
   const snapshot = {
     arrival: chosen.time,
-    following: index + 1 < list.length ? list[index + 1].time : null,
+    following: after?.time ?? null,
     load: chosen.bus.Load || null,
     vehicle: chosen.bus.Type || null,
   };
@@ -125,7 +112,6 @@ function next(registration, service, now) {
     urgent,
     nextPollAt: nextPollAt(chosen.time, now),
     tracked: chosen.time,
-    arrived,
     last: snapshot,
     contentState: contentState({ ...snapshot, since: Math.min(since, chosen.time), hasArrived: false }),
     staleDate: staleDate(chosen.time, now),
@@ -188,4 +174,4 @@ function nextStop(registration, services, now) {
   };
 }
 
-module.exports = { next, nextStop, contentState, appleDate, staleDate, REFERENCE_EPOCH, MAX_BUSES, FAR_POLL };
+module.exports = { next, nextStop, contentState, appleDate, staleDate, REFERENCE_EPOCH, FAR_POLL };
