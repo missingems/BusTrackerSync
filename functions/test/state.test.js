@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const { next, appleDate, staleDate, FAR_POLL } = require("../src/state");
 const crypto = require("node:crypto");
 const { APNs, payloadFor, isGone } = require("../src/apns");
+const { memoryRef } = require("./support/memory-ref");
 const { pollRound, pollFor } = require("../src/poller");
 
 const now = Date.parse("2026-11-02T08:00:00Z");
@@ -125,27 +126,6 @@ test("gone tokens are recognised", () => {
   assert.ok(!isGone({ status: 429, reason: "TooManyRequests" }));
 });
 
-function memoryRef(data) {
-  const ref = {
-    data,
-    async get() {
-      return { val: () => (Object.keys(ref.data).length ? structuredClone(ref.data) : null) };
-    },
-    child(id) {
-      return {
-        remove: async () => delete ref.data[id],
-        transaction: async (update) => {
-          await ref.beforeWrite?.(id);
-          const result = update(ref.data[id] ? structuredClone(ref.data[id]) : null);
-          if (result === undefined) return;
-          if (result === null) delete ref.data[id];
-          else ref.data[id] = result;
-        },
-      };
-    },
-  };
-  return ref;
-}
 
 test("one LTA call per stop, pushes fan out per activity", async () => {
   const ref = memoryRef({

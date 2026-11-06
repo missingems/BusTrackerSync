@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { nextStop, appleDate } = require("../src/state");
+const { memoryRef } = require("./support/memory-ref");
 const { pollRound } = require("../src/poller");
 
 const now = Date.parse("2026-11-02T08:00:00Z");
@@ -110,26 +111,6 @@ test("a far first bus is polled less often", () => {
   assert.equal(nextStop(stop(), board, now).nextPollAt, now);
 });
 
-function memoryRef(data) {
-  const ref = {
-    data,
-    async get() {
-      return { val: () => structuredClone(ref.data) };
-    },
-    child(id) {
-      return {
-        remove: async () => delete ref.data[id],
-        transaction: async (update) => {
-          const result = update(ref.data[id] ? structuredClone(ref.data[id]) : null);
-          if (result === undefined) return;
-          if (result === null) delete ref.data[id];
-          else ref.data[id] = result;
-        },
-      };
-    },
-  };
-  return ref;
-}
 
 test("a stop and a bus at the same stop share one LTA call", async () => {
   const ref = memoryRef({
