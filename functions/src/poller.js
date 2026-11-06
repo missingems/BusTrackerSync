@@ -38,12 +38,17 @@ function patch(ref, id, token, values) {
 }
 
 async function pollRound({ ref, accountKey, apns, fetcher = fetchStop, now = () => Date.now(), log = console }) {
-  const snapshot = await ref.get();
-  const registrations = snapshot.val() ?? {};
-  const stats = { stops: 0, activities: 0, waiting: 0, updates: 0, ends: 0, removed: 0, ltaErrors: 0 };
-  const byStop = {};
   const started = now();
-  let soonest = Infinity;
+  const byPoll = ref.orderByChild("nextPollAt");
+  const [dueSnapshot, upcomingSnapshot] = await Promise.all([
+    byPoll.endAt(started).get(),
+    byPoll.startAfter(started).limitToFirst(1).get(),
+  ]);
+  const registrations = dueSnapshot.val() ?? {};
+  const upcoming = Object.values(upcomingSnapshot.val() ?? {});
+  const stats = { stops: 0, activities: 0, waiting: upcoming.length, updates: 0, ends: 0, removed: 0, ltaErrors: 0 };
+  const byStop = {};
+  let soonest = Math.min(Infinity, ...upcoming.map((registration) => registration.nextPollAt));
   const due = (at) => { soonest = Math.min(soonest, at); };
   for (const [id, registration] of Object.entries(registrations)) {
     const required = REQUIRED[registration.kind ?? "bus"] ?? REQUIRED.bus;
@@ -51,11 +56,6 @@ async function pollRound({ ref, accountKey, apns, fetcher = fetchStop, now = () 
       log.warn?.(`Removing ${id}: missing ${required.filter((field) => registration[field] == null).join(", ")}`);
       stats.removed += 1;
       await ref.child(id).remove();
-      continue;
-    }
-    if (registration.nextPollAt > started) {
-      stats.waiting += 1;
-      due(registration.nextPollAt);
       continue;
     }
     (byStop[registration.stopCode] ??= []).push([id, registration]);
@@ -127,7 +127,7 @@ async function pollRound({ ref, accountKey, apns, fetcher = fetchStop, now = () 
       await patch(ref, id, registration.token, { ...saved, lastPushAt: at, nextPollAt });
     }));
   });
-  return { ...stats, registrations: Object.keys(registrations).length, soonest: Number.isFinite(soonest) ? soonest : null };
+  return { ...stats, registrations: Object.keys(registrations).length + upcoming.length, soonest: Number.isFinite(soonest) ? soonest : null };
 }
 
 async function pollFor(duration, interval, options) {

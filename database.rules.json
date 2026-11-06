@@ -3,6 +3,7 @@
     ".read": false,
     ".write": false,
     "busRoutes": { ".read": true },
+    "liveActivities": { ".indexOn": ["nextPollAt"] },
     "busStopRegions": { ".read": true },
     "serviceStops": { ".read": true }
   }
