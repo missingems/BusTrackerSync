@@ -46,7 +46,7 @@ async function pollRound({ ref, accountKey, apns, fetcher = fetchStop, now = () 
   ]);
   const registrations = dueSnapshot.val() ?? {};
   const upcoming = Object.values(upcomingSnapshot.val() ?? {});
-  const stats = { stops: 0, activities: 0, waiting: upcoming.length, updates: 0, ends: 0, removed: 0, ltaErrors: 0 };
+  const stats = { stops: 0, activities: 0, waiting: upcoming.length, updates: 0, ends: 0, removed: 0, ltaErrors: 0, failures: 0 };
   const byStop = {};
   let soonest = Math.min(Infinity, ...upcoming.map((registration) => registration.nextPollAt));
   const due = (at) => { soonest = Math.min(soonest, at); };
@@ -108,6 +108,7 @@ async function pollRound({ ref, accountKey, apns, fetcher = fetchStop, now = () 
         return;
       }
       if (response.status !== 200) {
+        stats.failures += 1;
         log.warn?.(`APNs ${response.status} ${response.reason} for ${id}`);
         due(at);
         const attempts = (registration.endAttempts ?? 0) + 1;

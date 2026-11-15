@@ -1,6 +1,6 @@
 const fs = require("node:fs");
 const { initializeApp } = require("firebase-admin/app");
-const { getDatabase } = require("firebase-admin/database");
+const { getDatabase, ServerValue } = require("firebase-admin/database");
 const { onRequest } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret, defineString, defineInt } = require("firebase-functions/params");
@@ -8,6 +8,8 @@ const { APNs, RecordingAPNs } = require("./apns");
 const { pollFor, pollRound } = require("./poller");
 const { proOwner } = require("./entitlement");
 const { claim } = require("./owners");
+const { makeOpsHandler } = require("./ops");
+const { recordRun } = require("./stats");
 
 initializeApp();
 
@@ -18,10 +20,21 @@ const APNS_KEY_ID = defineString("APNS_KEY_ID");
 const APNS_TEAM_ID = defineString("APNS_TEAM_ID", { default: "25WL36ABTN" });
 const APNS_TOPIC = defineString("APNS_TOPIC", { default: "sg.com.missingems.SGBusTime.push-type.liveactivity" });
 const POLL_SECONDS = defineInt("POLL_SECONDS", { default: 20 });
+const OPS_SECRET = defineSecret("OPS_SECRET");
+const OPS_ORIGINS = defineString("OPS_ORIGINS", { default: "https://missingems.github.io" });
 
 const emulated = process.env.FUNCTIONS_EMULATOR === "true";
 const activities = () => getDatabase().ref("liveActivities");
 const owners = () => getDatabase().ref("liveActivityOwners");
+const pollStats = () => getDatabase().ref("liveActivityStats");
+
+async function record(rounds, started, error) {
+  try {
+    await recordRun(pollStats(), rounds, { started, finished: Date.now(), error }, ServerValue.increment);
+  } catch (failure) {
+    console.warn(`Poll stats not saved: ${failure.message}`);
+  }
+}
 
 function makeAPNs() {
   const value = APNS_KEY.value().trim();
@@ -86,11 +99,18 @@ exports.pollLiveActivities = onSchedule(
   { region: REGION, schedule: "every 1 minutes", timeoutSeconds: 60, maxInstances: 1, secrets: [LTA_ACCOUNT_KEY, APNS_KEY] },
   async () => {
     const apns = makeAPNs();
+    const started = Date.now();
+    let rounds = [];
+    let failure = null;
     try {
-      const rounds = await pollFor(58_000, POLL_SECONDS.value() * 1000, { ref: activities(), accountKey: LTA_ACCOUNT_KEY.value(), apns });
+      rounds = await pollFor(58_000, POLL_SECONDS.value() * 1000, { ref: activities(), accountKey: LTA_ACCOUNT_KEY.value(), apns });
       if (rounds.some((round) => round.registrations > 0)) console.log(JSON.stringify(rounds));
+    } catch (error) {
+      failure = error;
+      throw error;
     } finally {
       apns.close();
+      await record(rounds, started, failure);
     }
   },
 );
@@ -98,10 +118,24 @@ exports.pollLiveActivities = onSchedule(
 if (emulated) {
   exports.pollNow = onRequest({ region: REGION, secrets: [LTA_ACCOUNT_KEY, APNS_KEY] }, async (request, response) => {
     const apns = makeAPNs();
+    const started = Date.now();
     try {
-      response.json(await pollRound({ ref: activities(), accountKey: LTA_ACCOUNT_KEY.value(), apns }));
+      const round = await pollRound({ ref: activities(), accountKey: LTA_ACCOUNT_KEY.value(), apns });
+      await record([round], started, null);
+      response.json(round);
     } finally {
       apns.close();
     }
   });
 }
+
+exports.ops = onRequest(
+  { region: REGION, maxInstances: 2, cors: false, secrets: [OPS_SECRET, LTA_ACCOUNT_KEY] },
+  makeOpsHandler({
+    db: getDatabase,
+    secret: () => OPS_SECRET.value(),
+    accountKey: () => LTA_ACCOUNT_KEY.value(),
+    origins: () => OPS_ORIGINS.value().split(",").map((origin) => origin.trim()).filter(Boolean),
+    emulated,
+  }),
+);

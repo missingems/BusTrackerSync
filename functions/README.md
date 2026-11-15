@@ -11,7 +11,40 @@ These Cloud Functions keep SGBusTime's bus Live Activity up to date after the ap
 - **`pollLiveActivities`** (scheduled every minute)
   - Polls at 0, 20 and 40 s inside each run. Cloud Scheduler can't fire more often than once a minute.
   - Returns straight away when there are no registrations.
-- **`pollNow`** (emulator only): runs one round when you call it.
+- **`pollNow`** (emulator only): runs one round when you call it, and records its stats like a scheduled run.
+- **`ops`** (HTTPS, read-only): aggregates for the NextStopOps console (`missingems/NextStopOps`). See [Ops endpoint](#ops-endpoint).
+
+## Ops endpoint
+
+`GET ops?view=…` with `Authorization: Bearer <OPS_SECRET>`.
+- **`summary`**
+  - Subscriber counts from a full read of `/liveActivities`: the total, by kind, by environment, the top 25 stops and services, and how many are replaced, retrying their end push or due.
+  - Poller stats from `/liveActivityStats`.
+- **`routes`**
+  - Reads `/serviceStops` and `/busRoutes`.
+  - Counts services and directions.
+  - Lists services with fewer polylines than stop lists, or with blank polylines. The app indexes past the end of those.
+  - Returns a SHA-256 of each path. The keys are sorted, so the console can compare them with its own catalog.
+  - Cached for 10 min per instance.
+- **`live&service=174&stops=a,b`** (1–6 stops)
+  - LTA `BusArrival` for each stop, filtered to the service.
+  - Each bus has its ETA (Unix ms), fix (`null` for 0,0 or outside Singapore), monitored flag, visit, origin, destination, load, type and feature.
+  - Each stop is fetched at most once per 20 s per instance, with the server's LTA key.
+
+It never returns tokens, activity ids, owners or per-registration timestamps.
+
+**Access.**
+- The secret is compared in constant time. With no secret, or one shorter than 16 characters, every request gets 401.
+- CORS allows only the origins in `OPS_ORIGINS` (default `https://missingems.github.io`). In the emulator, `http://localhost:*` and `http://127.0.0.1:*` are allowed too.
+- A browser request from any other origin gets 403 before anything is read.
+- `cors: false` hands preflights to the handler, so the emulator answers them exactly as production does. Without it, the emulator's debug CORS allows every origin.
+- `maxInstances: 2`.
+
+**Poll stats.** After every scheduled run, idle runs included, `pollLiveActivities` writes `/liveActivityStats`:
+- `last`: the run's time, duration, rounds, registrations read, LTA calls, LTA errors, pushes, push failures (non-200 responses whose token isn't gone), ends, removed, and the error if the run threw.
+- `hours/<UTC yyyymmddhh>`: increments of the same counters, plus `runs`, `activeRuns`, `errors` and `peakRegistrations`. Each run deletes the bucket from 48 h earlier.
+- A failed stats write is logged and never fails the run.
+- The path sits outside `/liveActivities`, because the poller deletes children there that are missing required fields. The root rule already denies client access to it.
 
 ## How each round decides what to push
 
@@ -39,11 +72,12 @@ The logic in `src/state.js` mirrors `BusActivityController.state(for:)`.
 cd functions
 npm install
 npm test
-printf 'LTA_ACCOUNT_KEY=<key>\nAPNS_KEY=mock\n' > .secret.local
+printf 'LTA_ACCOUNT_KEY=<key>\nAPNS_KEY=mock\nOPS_SECRET=%s\n' "$(openssl rand -hex 24)" > .secret.local
 printf 'APNS_KEY_ID=MOCK\n' > .env.local
 JAVA_HOME=/opt/homebrew/opt/openjdk@27 npx firebase emulators:start --only functions,database --project demo-sgbustime
 ```
 
+- **Index rule.** The database emulator may not load `database.rules.json` for the `demo-sgbustime` namespace. Then `pollNow` fails with "Index not defined … nextPollAt". Load the rules by hand: `curl -X PUT -H 'Authorization: Bearer owner' 'http://127.0.0.1:9000/.settings/rules.json?ns=demo-sgbustime' --data-binary @../database.rules.json`.
 - **Mock APNs.** `APNS_KEY=mock` records each push under `/liveActivityPushes` instead of sending it. Read them with `curl 'http://127.0.0.1:9000/liveActivityPushes.json?ns=demo-sgbustime'`.
 - **Real APNs.** To push to a real device from the emulator, set `APNS_KEY` to the absolute path of the `.p8` and `APNS_KEY_ID` to its Key ID.
 - **Point the app at the emulator.** Launch it with `-LiveActivityServer http://127.0.0.1:5001/demo-sgbustime/asia-southeast1/liveActivity`. With no endpoint, the app requests the activity with `pushType: nil`, exactly as before.
@@ -60,7 +94,29 @@ firebase functions:secrets:set APNS_KEY --data-file AuthKey_XXXX.p8 --project sg
 firebase deploy --only functions:live-activity --project sgbustime-15b1c
 ```
 
-Deploy only these functions with `--only functions:live-activity`. This `firebase.json` deliberately has no database rules, so this deploy can't overwrite the live RTDB rules.
+Deploy only these functions with `--only functions:live-activity`.
+
+**Ops endpoint and poll stats.**
+
+Set the secret first.
+1. Make a long random value with `openssl rand -hex 24`.
+2. Paste it at this command's prompt:
+
+```sh
+firebase functions:secrets:set OPS_SECRET --project sgbustime-15b1c
+```
+
+3. Paste the same value into the console's Connection card. Keep it in a password manager, not in a file in a repo.
+
+Then deploy only the two functions this change touches:
+
+```sh
+firebase deploy --only functions:live-activity:ops,functions:live-activity:pollLiveActivities --project sgbustime-15b1c
+```
+
+- This replaces the live poller with this branch's poller: master's code plus the stats write and the failure counter. Check first that what's live is master.
+- `ops` uses the existing `LTA_ACCOUNT_KEY` secret.
+- Use the URL the deploy prints for `ops`. If the console default (`https://asia-southeast1-sgbustime-15b1c.cloudfunctions.net/ops`) differs, paste the printed URL into Connection. This `firebase.json` deliberately has no database rules, so this deploy can't overwrite the live RTDB rules.
 
 After deploying:
 - Set `LiveActivityServer.defaultEndpoint` in the app to the deployed `liveActivity` URL.
