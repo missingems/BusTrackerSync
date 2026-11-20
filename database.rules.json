@@ -5,6 +5,8 @@
     "busRoutes": { ".read": true },
     "liveActivities": { ".indexOn": ["nextPollAt"] },
     "busStopRegions": { ".read": true },
-    "serviceStops": { ".read": true }
+    "serviceStops": { ".read": true },
+    "serviceAlertSubscribers": { ".read": false, ".write": false },
+    "serviceAlertState": { ".read": false, ".write": false }
   }
 }

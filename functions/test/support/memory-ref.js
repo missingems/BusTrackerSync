@@ -24,11 +24,25 @@ function memoryRef(data) {
     async get() {
       return snapshot(Object.entries(ref.data));
     },
+    async set(value) {
+      for (const id of Object.keys(ref.data)) delete ref.data[id];
+      Object.assign(ref.data, structuredClone(value ?? {}));
+    },
+    async update(values) {
+      for (const [id, value] of Object.entries(values)) {
+        if (value === null) delete ref.data[id];
+        else ref.data[id] = structuredClone(value);
+      }
+    },
     orderByChild(key) {
       return query(ref, key);
     },
     child(id) {
       return {
+        get: async () => ({ val: () => (ref.data[id] === undefined ? null : structuredClone(ref.data[id])) }),
+        set: async (value) => {
+          ref.data[id] = structuredClone(value);
+        },
         remove: async () => delete ref.data[id],
         transaction: async (update) => {
           await ref.beforeWrite?.(id);
