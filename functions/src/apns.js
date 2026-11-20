@@ -19,6 +19,7 @@ class APNs {
     this.keyId = keyId;
     this.teamId = teamId;
     this.topic = topic;
+    this.alertTopic = topic.replace(/\.push-type\.liveactivity$/, "");
     this.sessions = {};
   }
 
@@ -46,15 +47,15 @@ class APNs {
     return session;
   }
 
-  send({ token, environment, payload, priority }) {
+  send({ token, environment, payload, priority, pushType = "liveactivity" }) {
     const body = JSON.stringify(payload);
     return new Promise((resolve) => {
       const request = this.session(environment).request({
         ":method": "POST",
         ":path": `/3/device/${token}`,
         authorization: `bearer ${this.token()}`,
-        "apns-topic": this.topic,
-        "apns-push-type": "liveactivity",
+        "apns-topic": pushType === "alert" ? this.alertTopic : this.topic,
+        "apns-push-type": pushType,
         "apns-priority": String(priority),
         "content-type": "application/json",
       });
@@ -113,4 +114,8 @@ function isGone({ status, reason }) {
   return status === 410 || (status === 400 && ["BadDeviceToken", "DeviceTokenNotForTopic", "Unregistered"].includes(reason));
 }
 
-module.exports = { APNs, RecordingAPNs, payloadFor, isGone };
+function isDeadToken({ status, reason }) {
+  return status === 410 || (status === 400 && ["BadDeviceToken", "Unregistered"].includes(reason));
+}
+
+module.exports = { APNs, RecordingAPNs, payloadFor, isGone, isDeadToken };

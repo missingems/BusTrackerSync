@@ -10,6 +10,7 @@ const { proOwner } = require("./entitlement");
 const { claim } = require("./owners");
 const { makeOpsHandler } = require("./ops");
 const { recordRun } = require("./stats");
+const { makeSubscriptionHandler, fetchServiceAlerts, tick } = require("./serviceAlerts");
 
 initializeApp();
 
@@ -27,6 +28,8 @@ const emulated = process.env.FUNCTIONS_EMULATOR === "true";
 const activities = () => getDatabase().ref("liveActivities");
 const owners = () => getDatabase().ref("liveActivityOwners");
 const pollStats = () => getDatabase().ref("liveActivityStats");
+const alertSubscribers = () => getDatabase().ref("serviceAlertSubscribers");
+const alertState = () => getDatabase().ref("serviceAlertState");
 
 async function record(rounds, started, error) {
   try {
@@ -36,10 +39,10 @@ async function record(rounds, started, error) {
   }
 }
 
-function makeAPNs() {
+function makeAPNs(pushes = "liveActivityPushes") {
   const value = APNS_KEY.value().trim();
   if (value === "mock") {
-    return new RecordingAPNs((push) => getDatabase().ref("liveActivityPushes").push({ ...push, at: Date.now() }));
+    return new RecordingAPNs((push) => getDatabase().ref(pushes).push({ ...push, at: Date.now() }));
   }
   const key = emulated && value.startsWith("/") ? fs.readFileSync(value, "utf8") : value;
   return new APNs({ key, keyId: APNS_KEY_ID.value(), teamId: APNS_TEAM_ID.value(), topic: APNS_TOPIC.value() });
@@ -123,6 +126,45 @@ if (emulated) {
       const round = await pollRound({ ref: activities(), accountKey: LTA_ACCOUNT_KEY.value(), apns });
       await record([round], started, null);
       response.json(round);
+    } finally {
+      apns.close();
+    }
+  });
+}
+
+exports.serviceAlerts = onRequest({ region: REGION, maxInstances: 5 }, makeSubscriptionHandler({ ref: alertSubscribers }));
+
+exports.pollServiceAlerts = onSchedule(
+  { region: REGION, schedule: "every 1 minutes", timeoutSeconds: 60, maxInstances: 1, secrets: [LTA_ACCOUNT_KEY, APNS_KEY] },
+  async () => {
+    const apns = makeAPNs("serviceAlertPushes");
+    try {
+      const result = await tick({
+        fetchAlerts: () => fetchServiceAlerts(LTA_ACCOUNT_KEY.value()),
+        stateRef: alertState(),
+        subscribersRef: alertSubscribers(),
+        apns,
+      });
+      if (!result.idle && !result.skipped) console.log(JSON.stringify(result));
+    } finally {
+      apns.close();
+    }
+  },
+);
+
+if (emulated) {
+  exports.pollServiceAlertsNow = onRequest({ region: REGION, secrets: [LTA_ACCOUNT_KEY, APNS_KEY] }, async (request, response) => {
+    const fixture = request.method === "POST" && request.body?.value ? request.body : null;
+    const at = Number(request.query.at);
+    const apns = makeAPNs("serviceAlertPushes");
+    try {
+      response.json(await tick({
+        fetchAlerts: fixture ? async () => fixture : () => fetchServiceAlerts(LTA_ACCOUNT_KEY.value()),
+        stateRef: alertState(),
+        subscribersRef: alertSubscribers(),
+        apns,
+        now: Number.isFinite(at) && at > 0 ? () => at : undefined,
+      }));
     } finally {
       apns.close();
     }
