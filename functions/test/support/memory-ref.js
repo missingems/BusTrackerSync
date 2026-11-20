@@ -28,6 +28,12 @@ function memoryRef(data) {
       for (const id of Object.keys(ref.data)) delete ref.data[id];
       Object.assign(ref.data, structuredClone(value ?? {}));
     },
+    async update(values) {
+      for (const [id, value] of Object.entries(values)) {
+        if (value === null) delete ref.data[id];
+        else ref.data[id] = structuredClone(value);
+      }
+    },
     orderByChild(key) {
       return query(ref, key);
     },

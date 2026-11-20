@@ -25,7 +25,9 @@ const alerts = (...segments) => ({ value: { Status: 2, AffectedSegments: segment
 const TOKEN_A = "a1".repeat(32);
 const TOKEN_B = "b2".repeat(32);
 const idA = subscriberId(TOKEN_A);
+const TOKEN_C = "c3".repeat(32);
 const idB = subscriberId(TOKEN_B);
+const idC = subscriberId(TOKEN_C);
 const subscriber = (token, lines, quiet = null, environment = "sandbox") => ({ token, environment, lines, quiet, updatedAt: 1 });
 
 const SGT_NOON = Date.parse("2026-11-20T04:00:00Z");
@@ -33,7 +35,10 @@ const SGT_2330 = Date.parse("2026-11-20T15:30:00Z");
 
 const silent = { warn() {}, info() {}, log() {} };
 
-function harness({ subscribers = {}, state = {}, status = 200 } = {}) {
+const MINUTE = 60_000;
+const MORNING = Date.parse("2026-11-20T23:00:00Z");
+
+function harness({ subscribers = {}, state = {}, status = 200, limit } = {}) {
   const calls = [];
   const apns = {
     async send(push) {
@@ -49,13 +54,16 @@ function harness({ subscribers = {}, state = {}, status = 200 } = {}) {
   let reads = 0;
   const get = subscribersRef.get;
   subscribersRef.get = async () => { reads += 1; return get(); };
+  const updates = [];
+  const update = subscribersRef.update;
+  subscribersRef.update = async (values) => { updates.push(values); return update(values); };
   return {
-    calls, stateRef, subscribersRef,
+    calls, stateRef, subscribersRef, updates,
     writes: () => writes,
     subscriberReads: () => reads,
     run: (body, at = SGT_NOON) => tick({
       fetchAlerts: async () => { if (body instanceof Error) throw body; return body; },
-      stateRef, subscribersRef, apns, now: () => at, log: silent,
+      stateRef, subscribersRef, apns, now: () => at, log: silent, ...(limit ? { limit } : {}),
     }),
   };
 }
@@ -262,6 +270,12 @@ test("subscription validation", () => {
   for (const body of invalid) assert.equal(parseSubscription(body), null, JSON.stringify(body));
 });
 
+async function clearTwice(h, at = SGT_NOON + MINUTE) {
+  const first = await h.run(NORMAL, at);
+  assert.equal(first.sent, 0);
+  return h.run(NORMAL, at + MINUTE);
+}
+
 function call(handler, method, body) {
   const response = { statusCode: 200, sent: undefined };
   response.status = (code) => { response.statusCode = code; return response; };
@@ -343,14 +357,48 @@ test("normal service with empty state reads no subscribers", async () => {
   assert.equal(h.writes(), 0);
 });
 
-test("a changed disruption notifies again", async () => {
+test("a changed direction notifies again", async () => {
   const h = harness({ subscribers: { [idA]: subscriber(TOKEN_A, ["NEL"]) } });
   await h.run(alerts(nel()));
-  await h.run(alerts(nel({ Stations: "NE1,NE3,NE4,NE5,NE6,NE7" })), SGT_NOON + 60_000);
+  await h.run(alerts(nel({ Direction: "HarbourFront" })), SGT_NOON + 60_000);
   assert.equal(h.calls.length, 2);
-  assert.equal(h.calls[1].payload.aps.alert.body, "HarbourFront – Little India → Punggol");
+  assert.equal(h.calls[1].payload.aps.alert.body, "HarbourFront – Dhoby Ghaut → HarbourFront");
   assert.equal(h.stateRef.data.NEL.since, SGT_NOON);
   assert.deepEqual(h.stateRef.data.NEL.notified, { [idA]: true });
+});
+
+test("island-wide free bus appearing notifies again, and so does a second line appearing", async () => {
+  const h = harness({ subscribers: { [idA]: subscriber(TOKEN_A, ["NEL", "EWL"]) } });
+  await h.run(alerts(nel()));
+  await h.run(alerts(nel({ FreePublicBus: "Free bus service island wide" })), SGT_NOON + 60_000);
+  assert.equal(h.calls.length, 2);
+  assert.deepEqual(h.calls[1].payload.aps.alert["subtitle-loc-args"], ["5"]);
+  await h.run(alerts(nel({ FreePublicBus: "Free bus service island wide" }), { Line: "EWL", Direction: "Both", Stations: "EW1" }), SGT_NOON + 120_000);
+  assert.deepEqual(h.calls.slice(2).map((call) => call.payload.line), ["EWL"]);
+});
+
+test("station and free bus edits update the stored state without a new push", async () => {
+  const h = harness({ subscribers: { [idA]: subscriber(TOKEN_A, ["NEL"]) } });
+  await h.run(alerts(nel()));
+  const first = h.stateRef.data.NEL.key;
+  const edited = await h.run(alerts(nel({ Stations: "NE1,NE3,NE4,NE5,NE6,NE7", FreePublicBus: "NE1" })), SGT_NOON + 60_000);
+  assert.equal(edited.sent, 0);
+  assert.equal(h.calls.length, 1);
+  assert.notEqual(h.stateRef.data.NEL.key, first);
+  assert.equal(h.stateRef.data.NEL.since, SGT_NOON);
+  assert.deepEqual(h.stateRef.data.NEL.notified, { [idA]: true });
+  const again = await h.run(alerts(nel({ Stations: "NE1,NE3,NE4,NE5,NE6,NE7", FreePublicBus: "NE1" })), SGT_NOON + 120_000);
+  assert.equal(again.idle, true);
+});
+
+test("a silent edit still delivers a push that was held in quiet hours", async () => {
+  const night = { from: 22 * 60, to: 7 * 60 };
+  const h = harness({ subscribers: { [idA]: subscriber(TOKEN_A, ["NEL"], night) } });
+  await h.run(alerts(nel()), SGT_2330);
+  const edited = alerts(nel({ Stations: "NE1,NE3" }));
+  await h.run(edited, MORNING);
+  assert.equal(h.calls.length, 1);
+  assert.deepEqual(h.calls[0].payload, disruptedPayload(parseAlerts(edited).disruptions.NEL));
 });
 
 test("quiet hours hold the push as pending, then flush when the window ends", async () => {
@@ -384,6 +432,7 @@ test("pending is dropped when the disruption ends in quiet hours, with no notice
   const h = harness({ subscribers: { [idA]: subscriber(TOKEN_A, ["NEL"], night) } });
   await h.run(alerts(nel()), SGT_2330);
   await h.run(NORMAL, SGT_2330 + 60_000);
+  await h.run(NORMAL, SGT_2330 + 120_000);
   assert.equal(h.calls.length, 0);
   assert.deepEqual(h.stateRef.data, {});
 });
@@ -399,12 +448,11 @@ test("pending is dropped for subscribers who unsubscribe from the line", async (
 });
 
 test("resolving sends back to normal to notified subscribers who still follow the line", async () => {
-  const idC = subscriberId("c3".repeat(32));
   const idD = subscriberId("d4".repeat(32));
   const h = harness({ subscribers: {
     [idA]: subscriber(TOKEN_A, ["NEL"]),
     [idB]: subscriber(TOKEN_B, ["NEL"]),
-    [idC]: subscriber("c3".repeat(32), ["NEL"]),
+    [idC]: subscriber(TOKEN_C, ["NEL"]),
     [idD]: subscriber("d4".repeat(32), ["NEL"]),
   } });
   await h.run(alerts(nel()));
@@ -412,11 +460,11 @@ test("resolving sends back to normal to notified subscribers who still follow th
   h.subscribersRef.data[idB].lines = ["CCL"];
   h.subscribersRef.data[idC].quiet = { from: 11 * 60, to: 13 * 60 };
   delete h.subscribersRef.data[idD];
-  const result = await h.run(NORMAL, SGT_NOON + 60_000);
+  const result = await clearTwice(h);
   assert.equal(result.normal, 1);
   assert.deepEqual(h.calls.map((call) => call.token), [TOKEN_A]);
   assert.equal(h.calls[0].payload.kind, "normal");
-  assert.deepEqual(h.stateRef.data, {});
+  assert.deepEqual(h.stateRef.data.NEL.recovered, { [idC]: true });
 });
 
 test("a subscriber who joined after the alert is not sent a back to normal", async () => {
@@ -424,7 +472,7 @@ test("a subscriber who joined after the alert is not sent a back to normal", asy
   await h.run(alerts(nel()));
   h.subscribersRef.data[idB] = subscriber(TOKEN_B, ["NEL"]);
   h.calls.length = 0;
-  await h.run(NORMAL, SGT_NOON + 60_000);
+  await clearTwice(h);
   assert.deepEqual(h.calls.map((call) => call.token), [TOKEN_A]);
 });
 
@@ -433,6 +481,8 @@ test("lines resolve independently", async () => {
   await h.run(alerts(nel(), { Line: "EWL", Direction: "Both", Stations: "EW1,EW2" }));
   h.calls.length = 0;
   await h.run(alerts(nel()), SGT_NOON + 60_000);
+  assert.equal(h.calls.length, 0);
+  await h.run(alerts(nel()), SGT_NOON + 120_000);
   assert.deepEqual(h.calls.map((call) => call.payload.line), ["EWL"]);
   assert.deepEqual(h.calls.map((call) => call.payload.kind), ["normal"]);
   assert.deepEqual(Object.keys(h.stateRef.data), ["NEL"]);
@@ -491,7 +541,7 @@ test("a transient APNs failure retries on the next tick", async () => {
 });
 
 test("a permanent APNs rejection is not retried", async () => {
-  const h = harness({ subscribers: { [idA]: subscriber(TOKEN_A, ["NEL"]) }, status: { status: 403, reason: "InvalidProviderToken" } });
+  const h = harness({ subscribers: { [idA]: subscriber(TOKEN_A, ["NEL"]) }, status: () => ({ status: 400, reason: "PayloadEmpty" }) });
   await h.run(alerts(nel()));
   await h.run(alerts(nel()), SGT_NOON + 60_000);
   assert.equal(h.calls.length, 1);
@@ -506,6 +556,325 @@ test("invalid stored subscribers are ignored", async () => {
   } });
   await h.run(alerts(nel()));
   assert.deepEqual(h.calls.map((call) => call.token), [TOKEN_A]);
+});
+
+function many(count, lines = ["NEL"]) {
+  const subscribers = {};
+  const tokens = [];
+  for (let n = 1; n <= count; n++) {
+    const token = n.toString(16).padStart(4, "0").repeat(16);
+    tokens.push(token);
+    subscribers[subscriberId(token)] = subscriber(token, lines);
+  }
+  return { subscribers, tokens };
+}
+
+test("the new state is written before any push is sent", async () => {
+  const seen = [];
+  const h = harness({ subscribers: { [idA]: subscriber(TOKEN_A, ["NEL"]), [idB]: subscriber(TOKEN_B, ["NEL"], { from: 11 * 60, to: 13 * 60 }) } });
+  const send = h.calls.push.bind(h.calls);
+  h.calls.push = (push) => {
+    seen.push(structuredClone(h.stateRef.data.NEL));
+    return send(push);
+  };
+  await h.run(alerts(nel()));
+  assert.equal(seen.length, 1);
+  assert.deepEqual(seen[0].notified, { [idA]: true });
+  assert.deepEqual(seen[0].pending, { [idB]: true });
+});
+
+test("a run that dies after sending does not push disrupted again", async () => {
+  const h = harness({
+    subscribers: { [idA]: subscriber(TOKEN_A, ["NEL"]), [idB]: subscriber(TOKEN_B, ["NEL"]) },
+    status: (push) => (push.token === TOKEN_B ? { status: 410, reason: "Unregistered" } : { status: 200, reason: null }),
+  });
+  h.subscribersRef.update = async () => { throw new Error("timeout"); };
+  await assert.rejects(h.run(alerts(nel())), /timeout/);
+  assert.equal(h.calls.length, 2);
+  assert.deepEqual(h.stateRef.data.NEL.notified, { [idA]: true, [idB]: true });
+  await h.run(alerts(nel()), SGT_NOON + MINUTE);
+  assert.equal(h.calls.length, 2);
+});
+
+test("dead tokens go in one multi-path update and leave every line's state", async () => {
+  const { subscribers, tokens } = many(4, ["NEL", "EWL"]);
+  const live = tokens[0];
+  const h = harness({
+    subscribers,
+    status: (push) => (push.token === live ? { status: 200, reason: null } : { status: 410, reason: "Unregistered" }),
+  });
+  const result = await h.run(alerts(nel(), { Line: "EWL", Direction: "Both", Stations: "EW1" }));
+  assert.equal(h.updates.length, 1);
+  assert.deepEqual(Object.keys(h.updates[0]).sort(), tokens.slice(1).map(subscriberId).sort());
+  assert.ok(Object.values(h.updates[0]).every((value) => value === null));
+  assert.deepEqual(Object.keys(h.subscribersRef.data), [subscriberId(live)]);
+  assert.equal(result.removed, 3);
+  assert.deepEqual(h.stateRef.data.NEL.notified, { [subscriberId(live)]: true });
+  assert.deepEqual(h.stateRef.data.EWL.notified, { [subscriberId(live)]: true });
+});
+
+test("a run sends to at most the per-line limit and carries the rest over as pending", async () => {
+  const { subscribers, tokens } = many(5);
+  const h = harness({ subscribers, limit: 2 });
+  const first = await h.run(alerts(nel()));
+  assert.equal(first.disrupted, 2);
+  assert.equal(h.calls.length, 2);
+  assert.equal(Object.keys(h.stateRef.data.NEL.notified).length, 2);
+  assert.equal(Object.keys(h.stateRef.data.NEL.pending).length, 3);
+  await h.run(alerts(nel()), SGT_NOON + MINUTE);
+  await h.run(alerts(nel()), SGT_NOON + 2 * MINUTE);
+  assert.deepEqual(h.calls.map((call) => call.token).sort(), [...tokens].sort());
+  assert.equal(h.stateRef.data.NEL.pending, undefined);
+  assert.equal((await h.run(alerts(nel()), SGT_NOON + 3 * MINUTE)).idle, true);
+});
+
+test("the default per-line limit is 5000", async () => {
+  const { subscribers } = many(5003);
+  const h = harness({ subscribers });
+  const result = await h.run(alerts(nel()), SGT_NOON);
+  assert.equal(result.sent, 5000);
+  assert.equal(Object.keys(h.stateRef.data.NEL.pending).length, 3);
+});
+
+test("back to normal respects the per-line limit too", async () => {
+  const { subscribers, tokens } = many(5);
+  const h = harness({ subscribers, limit: 2 });
+  for (let n = 0; n < 3; n++) await h.run(alerts(nel()), SGT_NOON + n * MINUTE);
+  h.calls.length = 0;
+  const at = SGT_NOON + 10 * MINUTE;
+  await h.run(NORMAL, at);
+  const second = await h.run(NORMAL, at + MINUTE);
+  assert.equal(second.normal, 2);
+  assert.equal(Object.keys(h.stateRef.data.NEL.recovered).length, 3);
+  await h.run(NORMAL, at + 2 * MINUTE);
+  await h.run(NORMAL, at + 3 * MINUTE);
+  assert.deepEqual(h.calls.map((call) => call.token).sort(), [...tokens].sort());
+  assert.deepEqual(h.stateRef.data, {});
+});
+
+test("people in quiet hours at the end of a disruption are owed back to normal until it can be sent", async () => {
+  const night = { from: 22 * 60, to: 7 * 60 };
+  const h = harness({ subscribers: { [idA]: subscriber(TOKEN_A, ["NEL"]), [idB]: subscriber(TOKEN_B, ["NEL"]) } });
+  await h.run(alerts(nel()), SGT_2330 - 60 * MINUTE);
+  h.calls.length = 0;
+  h.subscribersRef.data[idA].quiet = night;
+  await h.run(NORMAL, SGT_2330);
+  const cleared = await h.run(NORMAL, SGT_2330 + MINUTE);
+  assert.equal(cleared.normal, 1);
+  assert.deepEqual(h.calls.map((call) => call.token), [TOKEN_B]);
+  assert.deepEqual(h.stateRef.data, { NEL: { since: SGT_2330 - 60 * MINUTE, recovered: { [idA]: true } } });
+
+  const stillQuiet = await h.run(NORMAL, SGT_2330 + 2 * MINUTE);
+  assert.equal(stillQuiet.idle, undefined);
+  assert.equal(stillQuiet.sent, 0);
+  assert.equal(h.calls.length, 1);
+
+  await h.run(NORMAL, MORNING);
+  assert.deepEqual(h.calls.map((call) => call.token), [TOKEN_B, TOKEN_A]);
+  assert.equal(h.calls[1].payload.kind, "normal");
+  assert.deepEqual(h.stateRef.data, {});
+  assert.equal((await h.run(NORMAL, MORNING + MINUTE)).idle, true);
+});
+
+test("a retryable failure on back to normal keeps the person owed until it goes through", async () => {
+  let reason = { status: 503, reason: "ServiceUnavailable" };
+  const h = harness({
+    subscribers: { [idA]: subscriber(TOKEN_A, ["NEL"]) },
+    status: (push) => (push.payload.kind === "normal" ? reason : { status: 200, reason: null }),
+  });
+  await h.run(alerts(nel()));
+  await clearTwice(h);
+  assert.deepEqual(h.stateRef.data.NEL.recovered, { [idA]: true });
+  for (const failing of [{ status: 429, reason: "TooManyRequests" }, { status: 0, reason: "socket hang up" }, { status: 403, reason: "ExpiredProviderToken" }]) {
+    reason = failing;
+    await h.run(NORMAL, SGT_NOON + 10 * MINUTE);
+    assert.deepEqual(h.stateRef.data.NEL.recovered, { [idA]: true });
+  }
+  reason = { status: 200, reason: null };
+  await h.run(NORMAL, SGT_NOON + 11 * MINUTE);
+  assert.deepEqual(h.stateRef.data, {});
+  assert.equal(h.calls.filter((call) => call.payload.kind === "normal").length, 5);
+});
+
+test("a permanent failure on back to normal is not retried", async () => {
+  const h = harness({
+    subscribers: { [idA]: subscriber(TOKEN_A, ["NEL"]) },
+    status: (push) => (push.payload.kind === "normal" ? { status: 400, reason: "PayloadEmpty" } : { status: 200, reason: null }),
+  });
+  await h.run(alerts(nel()));
+  await clearTwice(h);
+  assert.deepEqual(h.stateRef.data, {});
+  assert.equal(h.calls.length, 2);
+});
+
+test("someone owed back to normal who unsubscribes or dies is dropped", async () => {
+  const night = { from: 22 * 60, to: 7 * 60 };
+  const h = harness({ subscribers: { [idA]: subscriber(TOKEN_A, ["NEL"]), [idB]: subscriber(TOKEN_B, ["NEL"]) } });
+  await h.run(alerts(nel()), SGT_2330 - 60 * MINUTE);
+  h.subscribersRef.data[idA].quiet = night;
+  h.subscribersRef.data[idB].quiet = night;
+  await h.run(NORMAL, SGT_2330);
+  await h.run(NORMAL, SGT_2330 + MINUTE);
+  assert.deepEqual(h.stateRef.data.NEL.recovered, { [idA]: true, [idB]: true });
+  h.subscribersRef.data[idA].lines = ["EWL"];
+  delete h.subscribersRef.data[idB];
+  await h.run(NORMAL, SGT_2330 + 2 * MINUTE);
+  assert.deepEqual(h.stateRef.data, {});
+  assert.equal(h.calls.length, 2);
+});
+
+test("a dead token owed back to normal leaves the state and the subscribers", async () => {
+  const h = harness({
+    subscribers: { [idA]: subscriber(TOKEN_A, ["NEL"]) },
+    status: (push) => (push.payload.kind === "normal" ? { status: 410, reason: "Unregistered" } : { status: 200, reason: null }),
+  });
+  await h.run(alerts(nel()));
+  await clearTwice(h);
+  assert.deepEqual(h.stateRef.data, {});
+  assert.deepEqual(h.subscribersRef.data, {});
+});
+
+test("if the line is disrupted again, people owed back to normal get the new disrupted push instead", async () => {
+  const night = { from: 22 * 60, to: 7 * 60 };
+  const h = harness({ subscribers: {
+    [idA]: subscriber(TOKEN_A, ["NEL"]),
+    [idB]: subscriber(TOKEN_B, ["NEL"]),
+    [idC]: subscriber(TOKEN_C, ["NEL"]),
+  } });
+  await h.run(alerts(nel()), SGT_2330 - 60 * MINUTE);
+  h.subscribersRef.data[idA].quiet = night;
+  h.subscribersRef.data[idB].quiet = night;
+  await h.run(NORMAL, SGT_2330);
+  await h.run(NORMAL, SGT_2330 + MINUTE);
+  assert.deepEqual(h.stateRef.data.NEL.recovered, { [idA]: true, [idB]: true });
+  h.calls.length = 0;
+  h.subscribersRef.data[idA].quiet = null;
+  h.subscribersRef.data[idB].lines = ["EWL"];
+  await h.run(alerts(nel()), SGT_2330 + 2 * MINUTE);
+  assert.deepEqual(h.calls.map((call) => [call.token, call.payload.kind]), [[TOKEN_A, "disrupted"], [TOKEN_C, "disrupted"]]);
+  const entry = h.stateRef.data.NEL;
+  assert.equal(entry.recovered, undefined);
+  assert.equal(entry.since, SGT_2330 + 2 * MINUTE);
+  assert.deepEqual(entry.notified, { [idA]: true, [idC]: true });
+  assert.equal((await h.run(alerts(nel()), SGT_2330 + 3 * MINUTE)).idle, true);
+});
+
+test("someone owed back to normal stays owed while the new disrupted push is held in quiet hours", async () => {
+  const night = { from: 22 * 60, to: 7 * 60 };
+  const h = harness({ subscribers: { [idA]: subscriber(TOKEN_A, ["NEL"]) } });
+  await h.run(alerts(nel()), SGT_2330 - 60 * MINUTE);
+  h.subscribersRef.data[idA].quiet = night;
+  await h.run(NORMAL, SGT_2330);
+  await h.run(NORMAL, SGT_2330 + MINUTE);
+  h.calls.length = 0;
+  await h.run(alerts(nel()), SGT_2330 + 2 * MINUTE);
+  assert.equal(h.calls.length, 0);
+  assert.deepEqual(h.stateRef.data.NEL.recovered, { [idA]: true });
+  assert.deepEqual(h.stateRef.data.NEL.pending, { [idA]: true });
+  await h.run(NORMAL, SGT_2330 + 3 * MINUTE);
+  await h.run(NORMAL, SGT_2330 + 4 * MINUTE);
+  assert.equal(h.calls.length, 0);
+  assert.deepEqual(h.stateRef.data.NEL.recovered, { [idA]: true });
+  await h.run(NORMAL, MORNING);
+  assert.deepEqual(h.calls.map((call) => call.payload.kind), ["normal"]);
+  assert.deepEqual(h.stateRef.data, {});
+});
+
+test("an unchanged disruption is not idle while someone is still owed back to normal", async () => {
+  const night = { from: 22 * 60, to: 7 * 60 };
+  const h = harness({ subscribers: { [idA]: subscriber(TOKEN_A, ["NEL"]) }, state: { NEL: { since: 1, recovered: { [idA]: true } } } });
+  h.subscribersRef.data[idA].quiet = night;
+  const result = await h.run(NORMAL, SGT_2330);
+  assert.equal(result.idle, undefined);
+  assert.equal(h.subscriberReads(), 1);
+});
+
+test("a brief all-clear does not send back to normal or disrupted again", async () => {
+  const h = harness({ subscribers: { [idA]: subscriber(TOKEN_A, ["NEL"]) } });
+  await h.run(alerts(nel()));
+  const once = await h.run(NORMAL, SGT_NOON + MINUTE);
+  assert.equal(once.sent, 0);
+  assert.equal(h.stateRef.data.NEL.clear, 1);
+  const back = await h.run(alerts(nel()), SGT_NOON + 2 * MINUTE);
+  assert.equal(back.sent, 0);
+  assert.equal(h.calls.length, 1);
+  assert.equal(h.stateRef.data.NEL.clear, undefined);
+  assert.equal(h.stateRef.data.NEL.since, SGT_NOON);
+  assert.equal((await h.run(alerts(nel()), SGT_NOON + 3 * MINUTE)).idle, true);
+  await h.run(NORMAL, SGT_NOON + 4 * MINUTE);
+  await h.run(NORMAL, SGT_NOON + 5 * MINUTE);
+  assert.deepEqual(h.calls.map((call) => call.payload.kind), ["disrupted", "normal"]);
+});
+
+test("a feed that skips a run does not count towards the all-clear", async () => {
+  const h = harness({ subscribers: { [idA]: subscriber(TOKEN_A, ["NEL"]) } });
+  await h.run(alerts(nel()));
+  await h.run(NORMAL, SGT_NOON + MINUTE);
+  await h.run(new Error("LTA 503"), SGT_NOON + 2 * MINUTE);
+  assert.equal(h.calls.length, 1);
+  await h.run(NORMAL, SGT_NOON + 3 * MINUTE);
+  assert.equal(h.calls.length, 2);
+});
+
+test("a flap that returns with a changed direction notifies about the change", async () => {
+  const h = harness({ subscribers: { [idA]: subscriber(TOKEN_A, ["NEL"]) } });
+  await h.run(alerts(nel()));
+  await h.run(NORMAL, SGT_NOON + MINUTE);
+  await h.run(alerts(nel({ Direction: "HarbourFront" })), SGT_NOON + 2 * MINUTE);
+  assert.equal(h.calls.length, 2);
+  assert.equal(h.calls[1].payload.kind, "disrupted");
+});
+
+test("alert pushes collapse per line so a newer one replaces the older", async () => {
+  const h = harness({ subscribers: { [idA]: subscriber(TOKEN_A, ["NEL", "EWL"]) } });
+  await h.run(alerts(nel(), { Line: "EWL", Direction: "Both", Stations: "EW1" }));
+  await clearTwice(h);
+  const ids = Object.fromEntries(h.calls.map((call) => [`${call.payload.line} ${call.payload.kind}`, call.headers["apns-collapse-id"]]));
+  assert.deepEqual(ids, {
+    "NEL disrupted": "service-alert-NEL", "EWL disrupted": "service-alert-EWL",
+    "NEL normal": "service-alert-NEL", "EWL normal": "service-alert-EWL",
+  });
+});
+
+test("provider token errors are retried and other failures are counted by reason in one warning", async () => {
+  const { subscribers, tokens } = many(7);
+  const outcomes = [
+    { status: 403, reason: "InvalidProviderToken" },
+    { status: 403, reason: "ExpiredProviderToken" },
+    { status: 400, reason: "PayloadEmpty" },
+    { status: 400, reason: "PayloadEmpty" },
+    { status: 503, reason: null },
+    { status: 410, reason: "Unregistered" },
+    { status: 200, reason: null },
+  ];
+  const h = harness({ subscribers, status: (push) => outcomes[tokens.indexOf(push.token)] });
+  const warnings = [];
+  const infos = [];
+  const result = await tick({
+    fetchAlerts: async () => alerts(nel()),
+    stateRef: h.stateRef, subscribersRef: h.subscribersRef,
+    apns: { send: async (push) => { h.calls.push(push); return outcomes[tokens.indexOf(push.token)]; } },
+    now: () => SGT_NOON,
+    log: { warn: (line) => warnings.push(line), info: (line) => infos.push(line) },
+  });
+  assert.deepEqual(result.failures, { InvalidProviderToken: 1, ExpiredProviderToken: 1, PayloadEmpty: 2, "HTTP 503": 1 });
+  assert.equal(result.removed, 1);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /5\/7/);
+  assert.equal(infos.length, 0);
+  assert.equal(JSON.stringify([warnings, result]).includes(tokens[0]), false);
+  assert.deepEqual(Object.keys(h.stateRef.data.NEL.pending).sort(), [tokens[0], tokens[1], tokens[4]].map(subscriberId).sort());
+});
+
+test("a clean run logs no warning and reports no failures", async () => {
+  const h = harness({ subscribers: { [idA]: subscriber(TOKEN_A, ["NEL"]) } });
+  const warnings = [];
+  const result = await tick({
+    fetchAlerts: async () => alerts(nel()), stateRef: h.stateRef, subscribersRef: h.subscribersRef,
+    apns: { send: async () => ({ status: 200, reason: null }) }, now: () => SGT_NOON, log: { warn: (line) => warnings.push(line) },
+  });
+  assert.deepEqual(result.failures, {});
+  assert.deepEqual(warnings, []);
 });
 
 function fakeHTTP2(t) {
@@ -546,4 +915,81 @@ test("APNs sends alerts on the plain bundle topic and keeps live activity header
   assert.equal(live["apns-topic"], "sg.com.example.App.push-type.liveactivity");
   assert.equal(live["apns-priority"], "5");
   assert.deepEqual(Object.keys(live), [":method", ":path", "authorization", "apns-topic", "apns-push-type", "apns-priority", "content-type"]);
+});
+
+test("APNs passes extra headers on alert pushes only when given", async (t) => {
+  const requests = fakeHTTP2(t);
+  const { privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256", privateKeyEncoding: { type: "pkcs8", format: "pem" }, publicKeyEncoding: { type: "spki", format: "pem" } });
+  const apns = new APNs({ key: privateKey, keyId: "KEYAH", teamId: "TEAMAH", topic: "sg.com.example.App.push-type.liveactivity" });
+  await apns.send({ token: "ab".repeat(32), environment: "sandbox", payload: { aps: {} }, priority: 10, pushType: "alert", headers: { "apns-collapse-id": "service-alert-NEL" } });
+  await apns.send({ token: "ab".repeat(32), environment: "sandbox", payload: { aps: {} }, priority: 10, pushType: "alert" });
+  apns.close();
+  assert.equal(requests[0].headers["apns-collapse-id"], "service-alert-NEL");
+  assert.equal(requests[0].headers["apns-topic"], "sg.com.example.App");
+  assert.equal("apns-collapse-id" in requests[1].headers, false);
+});
+
+test("a failed re-push for a changed direction still leaves the person owed back to normal", async () => {
+  let failing = false;
+  const h = harness({
+    subscribers: { [idA]: subscriber(TOKEN_A, ["NEL"]) },
+    status: (push) => (failing && push.payload.kind === "disrupted" ? { status: 503, reason: null } : { status: 200, reason: null }),
+  });
+  await h.run(alerts(nel()));
+  failing = true;
+  await h.run(alerts(nel({ Direction: "HarbourFront" })), SGT_NOON + MINUTE);
+  assert.deepEqual(h.stateRef.data.NEL.notified, { [idA]: true });
+  assert.deepEqual(h.stateRef.data.NEL.pending, { [idA]: true });
+  failing = false;
+  h.calls.length = 0;
+  await clearTwice(h, SGT_NOON + 2 * MINUTE);
+  assert.deepEqual(h.calls.map((call) => call.payload.kind), ["normal"]);
+  assert.deepEqual(h.stateRef.data, {});
+});
+
+test("a failed new disrupted push keeps someone owed back to normal", async () => {
+  const night = { from: 22 * 60, to: 7 * 60 };
+  let failing = false;
+  const h = harness({
+    subscribers: { [idA]: subscriber(TOKEN_A, ["NEL"]) },
+    status: (push) => (failing && push.payload.kind === "disrupted" ? { status: 503, reason: null } : { status: 200, reason: null }),
+  });
+  await h.run(alerts(nel()), SGT_2330 - 60 * MINUTE);
+  h.subscribersRef.data[idA].quiet = night;
+  await h.run(NORMAL, SGT_2330);
+  await h.run(NORMAL, SGT_2330 + MINUTE);
+  assert.deepEqual(h.stateRef.data.NEL.recovered, { [idA]: true });
+  h.subscribersRef.data[idA].quiet = null;
+  failing = true;
+  await h.run(alerts(nel()), SGT_2330 + 2 * MINUTE);
+  assert.deepEqual(h.stateRef.data.NEL.pending, { [idA]: true });
+  assert.deepEqual(h.stateRef.data.NEL.recovered, { [idA]: true });
+  failing = false;
+  h.calls.length = 0;
+  await clearTwice(h, SGT_2330 + 3 * MINUTE);
+  assert.deepEqual(h.calls.map((call) => call.payload.kind), ["normal"]);
+  assert.deepEqual(h.stateRef.data, {});
+});
+
+test("a permanently rejected first disrupted push is not followed by a back to normal", async () => {
+  const h = harness({
+    subscribers: { [idA]: subscriber(TOKEN_A, ["NEL"]) },
+    status: (push) => (push.payload.kind === "disrupted" ? { status: 400, reason: "PayloadEmpty" } : { status: 200, reason: null }),
+  });
+  await h.run(alerts(nel()));
+  assert.equal(h.stateRef.data.NEL.notified, undefined);
+  await clearTwice(h);
+  assert.equal(h.calls.length, 1);
+  assert.deepEqual(h.stateRef.data, {});
+});
+
+test("a send that throws is treated as a retryable failure", async () => {
+  const h = harness({ subscribers: { [idA]: subscriber(TOKEN_A, ["NEL"]) } });
+  const result = await tick({
+    fetchAlerts: async () => alerts(nel()), stateRef: h.stateRef, subscribersRef: h.subscribersRef,
+    apns: { send: async () => { throw new Error("socket closed"); } },
+    now: () => SGT_NOON, log: silent,
+  });
+  assert.deepEqual(result.failures, { "socket closed": 1 });
+  assert.deepEqual(h.stateRef.data.NEL.pending, { [idA]: true });
 });

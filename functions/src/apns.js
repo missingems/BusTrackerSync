@@ -47,7 +47,7 @@ class APNs {
     return session;
   }
 
-  send({ token, environment, payload, priority, pushType = "liveactivity" }) {
+  send({ token, environment, payload, priority, pushType = "liveactivity", headers }) {
     const body = JSON.stringify(payload);
     return new Promise((resolve) => {
       const request = this.session(environment).request({
@@ -58,6 +58,7 @@ class APNs {
         "apns-push-type": pushType,
         "apns-priority": String(priority),
         "content-type": "application/json",
+        ...headers,
       });
       let status = 0;
       let data = "";

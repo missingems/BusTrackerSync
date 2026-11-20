@@ -134,16 +134,17 @@ After deploying:
 - `DELETE` JSON `{token}` removes it. Replies `204`, or `400`. The token is never read from the query string.
 - Any other method gets `405`.
 
-**Data stored.** `/serviceAlertSubscribers/<sha256 of the token>` holds the raw token (needed to send), `environment`, `lines`, `quiet` and `updatedAt`, and nothing else. `/serviceAlertState/<line>` holds the current disruption's `key` (a hash of its segments), `since`, and the hashed ids in `notified` and `pending`. The pushes themselves aren't stored.
+**Data stored.** `/serviceAlertSubscribers/<sha256 of the token>` holds the raw token (needed to send), `environment`, `lines`, `quiet` and `updatedAt`, and nothing else. `/serviceAlertState/<line>` holds the current disruption's `key` (a hash of its segments), `material` (a hash of its direction and island-wide flag), `since`, `clear` (consecutive all-clear runs so far) and the hashed ids in `notified`, `pending` and `recovered` (people still owed "back to normal"). The pushes themselves aren't stored.
 
 **Each tick** (every minute, one LTA `TrainServiceAlerts` call, one read of `/serviceAlertState`):
-- Segments are grouped per line, with `STL` and `PTL` mapped to the app's `SKL` and `PGL`. A new or changed disruption on a line notifies its subscribers.
+- Segments are grouped per line, with `STL` and `PTL` mapped to the app's `SKL` and `PGL`. A new disruption, or one whose direction or island-wide free bus changes, notifies its subscribers. Edits to the station or free-bus lists only update the stored state.
 - Subscribers inside their quiet window are held as `pending` and sent when the window ends, if the disruption is still active.
-- When a line disappears from the feed, subscribers who were notified and are not in quiet hours get "back to normal". Anything still pending is dropped.
+- A line must be missing from the feed for 2 runs in a row before it counts as back to normal, so a brief flap sends nothing. Then subscribers who were notified get "back to normal". Those in quiet hours, or whose send failed with a retryable error, stay in `recovered` and are sent it as soon as they can be. Anything still pending is dropped. If the line is disrupted again, anyone still owed "back to normal" is sent the new disrupted push instead.
+- The new state is written before the pushes go out, so a timeout never repeats a "disrupted" push. Retryable failures are put back in `pending` or `recovered` afterwards. At most 5,000 subscribers per line are handled per run; the rest wait in `pending` or `recovered`.
 - It reads `/serviceAlertSubscribers` only when there is something to send, so a tick with no change costs one LTA call and one small read.
 - A failed or malformed LTA response, or Status 2 with no usable segments, skips the tick. It is never treated as "back to normal".
-- A transient APNs failure (network, 429, 5xx) is retried on the next tick. A `410`, `BadDeviceToken` or `Unregistered` answer removes the subscription.
-- Pushes are `apns-push-type: alert`, priority 10, on the bundle id topic (the `APNS_TOPIC` value without `.push-type.liveactivity`). Titles and subtitles are loc keys, so the device localises them. Station names come from `src/stations.json`, generated from the app's `trains.json`.
+- A transient APNs failure (network, 429, 5xx, or a 403 `InvalidProviderToken` or `ExpiredProviderToken`) is retried on the next tick. A `410`, `BadDeviceToken` or `Unregistered` answer removes the subscription, all in one update. Other failures are counted by reason in the tick result and logged as one warning per run.
+- Pushes are `apns-push-type: alert`, priority 10, `apns-collapse-id: service-alert-<LINE>`, on the bundle id topic (the `APNS_TOPIC` value without `.push-type.liveactivity`). Titles and subtitles are loc keys, so the device localises them. Station names come from `src/stations.json`, generated from the app's `trains.json`.
 
 **Cost.** One LTA call a minute is about 43,200 a month. It adds one Cloud Scheduler job (3 are free per billing account, then $0.10 a month). Function time is a second or two per run. APNs is free.
 

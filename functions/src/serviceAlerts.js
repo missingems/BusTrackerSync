@@ -7,6 +7,9 @@ const APP_LINES = ["NSL", "EWL", "NEL", "CCL", "DTL", "TEL", "BPL", "SKL", "PGL"
 const ALIASES = { STL: "SKL", SLRT: "SKL", PTL: "PGL", PLRT: "PGL", CEL: "CCL", CGL: "EWL" };
 const TOKEN = /^[0-9a-f]{64,160}$/;
 const SEND_CONCURRENCY = 16;
+const MAX_PER_LINE = 5000;
+const CLEAR_RUNS = 2;
+const PROVIDER_TOKEN_REASONS = ["InvalidProviderToken", "ExpiredProviderToken"];
 const SGT_OFFSET = 8 * 60 * 60_000;
 const DAY = 24 * 60 * 60_000;
 
@@ -64,7 +67,11 @@ function mergeLine(line, segments) {
     .update(canonical(segments.map(({ direction: d, stations: s, islandWide: w, freeBus: f }) => canonical({ d: d.toLowerCase(), s: [...s].sort(), w, f: [...f].sort() })).sort()))
     .digest("hex")
     .slice(0, 16);
-  return { line, key, direction, stations, freeBus: islandWide ? stations.length : free.size, islandWide };
+  const material = crypto.createHash("sha256")
+    .update(canonical({ d: direction.toLowerCase(), w: islandWide }))
+    .digest("hex")
+    .slice(0, 16);
+  return { line, key, material, direction, stations, freeBus: islandWide ? stations.length : free.size, islandWide };
 }
 
 function parseAlerts(body) {
@@ -98,6 +105,10 @@ function inQuiet(quiet, now) {
 
 function stationName(code) {
   return STATIONS[code] ?? code;
+}
+
+function collapseHeaders(line) {
+  return { "apns-collapse-id": `service-alert-${line}` };
 }
 
 function disruptedPayload(disruption) {
@@ -192,11 +203,26 @@ function readSubscribers(value) {
   return subscribers;
 }
 
+function blankEntry() {
+  return { key: null, material: null, since: 0, notified: {}, pending: {}, clear: 0, recovered: {} };
+}
+
 function readState(value) {
   const state = {};
   for (const [line, entry] of Object.entries(value ?? {})) {
-    if (!APP_LINES.includes(line) || !entry || typeof entry.key !== "string") continue;
-    state[line] = { key: entry.key, since: entry.since ?? 0, notified: { ...entry.notified }, pending: { ...entry.pending } };
+    if (!APP_LINES.includes(line) || !entry) continue;
+    const key = typeof entry.key === "string" ? entry.key : null;
+    const recovered = { ...entry.recovered };
+    if (key === null && Object.keys(recovered).length === 0) continue;
+    state[line] = {
+      key,
+      material: typeof entry.material === "string" ? entry.material : null,
+      since: entry.since ?? 0,
+      notified: { ...entry.notified },
+      pending: { ...entry.pending },
+      clear: Number.isInteger(entry.clear) && entry.clear > 0 ? entry.clear : 0,
+      recovered,
+    };
   }
   return state;
 }
@@ -204,9 +230,13 @@ function readState(value) {
 function storedState(state) {
   const stored = {};
   for (const [line, entry] of Object.entries(state)) {
-    stored[line] = { key: entry.key, since: entry.since };
+    stored[line] = { since: entry.since };
+    if (entry.key !== null) stored[line].key = entry.key;
+    if (entry.material !== null) stored[line].material = entry.material;
+    if (entry.clear > 0) stored[line].clear = entry.clear;
     if (Object.keys(entry.notified).length > 0) stored[line].notified = entry.notified;
     if (Object.keys(entry.pending).length > 0) stored[line].pending = entry.pending;
+    if (Object.keys(entry.recovered).length > 0) stored[line].recovered = entry.recovered;
   }
   return stored;
 }
@@ -214,69 +244,119 @@ function storedState(state) {
 function isIdle(state, disruptions) {
   const lines = Object.keys(disruptions);
   return lines.length === Object.keys(state).length
-    && lines.every((line) => state[line]?.key === disruptions[line].key && Object.keys(state[line].pending).length === 0);
+    && lines.every((line) => {
+      const entry = state[line];
+      return entry?.key === disruptions[line].key
+        && entry.clear === 0
+        && Object.keys(entry.pending).length === 0
+        && Object.keys(entry.recovered).length === 0;
+    });
 }
 
-function advance({ state, disruptions, subscribers, now }) {
+function advance({ state, disruptions, subscribers, now, limit = MAX_PER_LINE }) {
   const next = {};
   const sends = [];
   const watchers = (line) => Object.entries(subscribers).filter(([, subscriber]) => subscriber.lines.includes(line));
+  const follows = (id, line) => Boolean(subscribers[id]?.lines.includes(line));
   for (const [line, disruption] of Object.entries(disruptions)) {
     const current = state[line];
+    const active = current?.key != null;
     const entry = {
       key: disruption.key,
-      since: current?.since ?? now,
+      material: disruption.material,
+      since: active ? current.since : now,
       notified: { ...current?.notified },
       pending: { ...current?.pending },
+      clear: 0,
+      recovered: { ...current?.recovered },
     };
     const interested = new Set(watchers(line).map(([id]) => id));
-    for (const id of Object.keys(entry.pending)) if (!interested.has(id)) delete entry.pending[id];
-    for (const id of Object.keys(entry.notified)) if (!interested.has(id)) delete entry.notified[id];
-    const changed = !current || current.key !== disruption.key;
+    for (const field of [entry.pending, entry.notified, entry.recovered]) {
+      for (const id of Object.keys(field)) if (!interested.has(id)) delete field[id];
+    }
+    const changed = !active || (current.material !== null && current.material !== disruption.material);
     const targets = changed ? [...interested] : Object.keys(entry.pending);
+    let budget = limit;
     for (const id of targets) {
-      if (inQuiet(subscribers[id].quiet, now)) {
+      if (inQuiet(subscribers[id].quiet, now) || budget === 0) {
         entry.pending[id] = true;
       } else {
+        budget -= 1;
+        const was = { notified: Boolean(entry.notified[id]), recovered: Boolean(entry.recovered[id]) };
         delete entry.pending[id];
-        sends.push({ id, line, kind: "disrupted", payload: disruptedPayload(disruption) });
+        delete entry.recovered[id];
+        entry.notified[id] = true;
+        sends.push({ id, line, kind: "disrupted", payload: disruptedPayload(disruption), headers: collapseHeaders(line), was });
       }
     }
     next[line] = entry;
   }
   for (const [line, current] of Object.entries(state)) {
     if (disruptions[line]) continue;
-    for (const id of Object.keys(current.notified)) {
-      const subscriber = subscribers[id];
-      if (subscriber?.lines.includes(line) && !inQuiet(subscriber.quiet, now)) {
-        sends.push({ id, line, kind: "normal", payload: normalPayload(line) });
+    const entry = { ...current, notified: { ...current.notified }, pending: { ...current.pending }, recovered: { ...current.recovered } };
+    if (entry.key !== null) {
+      if (entry.clear + 1 < CLEAR_RUNS) {
+        entry.clear += 1;
+        next[line] = entry;
+        continue;
+      }
+      Object.assign(entry.recovered, entry.notified);
+      Object.assign(entry, { key: null, material: null, notified: {}, pending: {}, clear: 0 });
+    }
+    let budget = limit;
+    for (const id of Object.keys(entry.recovered)) {
+      if (!follows(id, line)) {
+        delete entry.recovered[id];
+      } else if (!inQuiet(subscribers[id].quiet, now) && budget > 0) {
+        budget -= 1;
+        delete entry.recovered[id];
+        sends.push({ id, line, kind: "normal", payload: normalPayload(line), headers: collapseHeaders(line) });
       }
     }
+    if (Object.keys(entry.recovered).length > 0) next[line] = entry;
   }
   return { state: next, sends };
 }
 
-function retryable({ status }) {
-  return status === 0 || status === 429 || status >= 500;
+function retryable({ status, reason }) {
+  return status === 0 || status === 429 || status >= 500 || (status === 403 && PROVIDER_TOKEN_REASONS.includes(reason));
 }
 
 function settle(state, sends, responses) {
-  const removed = [];
+  const removed = new Set();
+  sends.forEach((send, index) => {
+    if (!isDeadToken(responses[index])) return;
+    removed.add(send.id);
+    for (const entry of Object.values(state)) {
+      delete entry.notified[send.id];
+      delete entry.pending[send.id];
+      delete entry.recovered[send.id];
+    }
+  });
   sends.forEach((send, index) => {
     const response = responses[index];
-    if (isDeadToken(response)) {
-      removed.push(send.id);
-      for (const entry of Object.values(state)) {
-        delete entry.notified[send.id];
-        delete entry.pending[send.id];
-      }
-      return;
+    if (removed.has(send.id) || response.status === 200) return;
+    if (send.kind === "disrupted") {
+      const entry = state[send.line];
+      if (!send.was?.notified) delete entry.notified[send.id];
+      if (!retryable(response)) return;
+      entry.pending[send.id] = true;
+      if (send.was?.recovered) entry.recovered[send.id] = true;
+    } else if (retryable(response)) {
+      (state[send.line] ??= blankEntry()).recovered[send.id] = true;
     }
-    if (send.kind !== "disrupted" || !state[send.line]) return;
-    if (response.status === 200) state[send.line].notified[send.id] = true;
-    else if (retryable(response)) state[send.line].pending[send.id] = true;
   });
-  return removed;
+  return [...removed];
+}
+
+function tallyFailures(responses) {
+  const failures = {};
+  for (const response of responses) {
+    if (response.status === 200 || isDeadToken(response)) continue;
+    const reason = response.reason ? String(response.reason).replace(/[0-9a-f]{32,}/gi, "?").slice(0, 64) : `HTTP ${response.status}`;
+    failures[reason] = (failures[reason] ?? 0) + 1;
+  }
+  return failures;
 }
 
 async function inPool(items, size, work) {
@@ -298,7 +378,7 @@ async function fetchServiceAlerts(accountKey) {
   return response.json();
 }
 
-async function tick({ fetchAlerts, stateRef, subscribersRef, apns, now = () => Date.now(), log = console }) {
+async function tick({ fetchAlerts, stateRef, subscribersRef, apns, now = () => Date.now(), log = console, limit = MAX_PER_LINE }) {
   let body;
   try {
     body = await fetchAlerts();
@@ -316,32 +396,44 @@ async function tick({ fetchAlerts, stateRef, subscribersRef, apns, now = () => D
 
   const at = now();
   const subscribers = readSubscribers((await subscribersRef.get()).val());
-  const plan = advance({ state, disruptions: parsed.disruptions, subscribers, now: at });
+  const plan = advance({ state, disruptions: parsed.disruptions, subscribers, now: at, limit });
+  const writeState = () => stateRef.set(Object.keys(plan.state).length > 0 ? storedState(plan.state) : null);
+  const before = canonical(storedState(state));
+  const planned = canonical(storedState(plan.state));
+  if (before !== planned) await writeState();
+
   const responses = new Array(plan.sends.length);
   await inPool(plan.sends, SEND_CONCURRENCY, async (send, index) => {
     const subscriber = subscribers[send.id];
-    responses[index] = await apns.send({
-      token: subscriber.token,
-      environment: subscriber.environment,
-      payload: send.payload,
-      priority: 10,
-      pushType: "alert",
-      id: send.id,
-    });
-    log.info?.(`APNs ${responses[index].status} ${responses[index].reason ?? ""} ${send.kind} ${send.line} ${send.id.slice(0, 8)}`);
+    try {
+      responses[index] = await apns.send({
+        token: subscriber.token,
+        environment: subscriber.environment,
+        payload: send.payload,
+        priority: 10,
+        pushType: "alert",
+        headers: send.headers,
+        id: send.id,
+      });
+    } catch (error) {
+      responses[index] = { status: 0, reason: error.message };
+    }
   });
   const removed = settle(plan.state, plan.sends, responses);
-  for (const id of removed) await subscribersRef.child(id).remove();
-  const before = canonical(storedState(state));
+  if (removed.length > 0) await subscribersRef.update(Object.fromEntries(removed.map((id) => [id, null])));
   const after = canonical(storedState(plan.state));
-  if (before !== after) await stateRef.set(Object.keys(plan.state).length > 0 ? storedState(plan.state) : null);
+  if (after !== planned) await writeState();
+  const failures = tallyFailures(responses);
+  const failed = Object.values(failures).reduce((total, count) => total + count, 0);
+  if (failed > 0) log.warn?.(`Service alert APNs failures ${failed}/${plan.sends.length}: ${JSON.stringify(failures)}`);
   return {
     lines: Object.keys(parsed.disruptions),
     sent: plan.sends.length,
     disrupted: plan.sends.filter((send) => send.kind === "disrupted").length,
     normal: plan.sends.filter((send) => send.kind === "normal").length,
     removed: removed.length,
-    written: before !== after,
+    failures,
+    written: before !== planned || after !== planned,
   };
 }
 
